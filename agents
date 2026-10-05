@@ -179,8 +179,8 @@ approve() {
   tmux send-keys -t "$1" Enter
 }
 
-# Escape stops a working agent; on a prompt it would dismiss the question, so
-# only a working agent gets it.
+# Escape (C-c for Copilot) stops a working agent; on a prompt it would dismiss
+# the question, so only a working agent gets it.
 interrupt() {
   is_pane "${1:-}" || return 0
   [ "$(tmux display -p -t "$1" '#{@agent_state}' 2>/dev/null)" = running ] ||

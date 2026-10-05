@@ -97,7 +97,7 @@ Inside the panel:
 | `y` | approve: sends Enter, and only to an agent that is waiting |
 | `m` | type a message to it |
 | `n` | give it a name (empty resets to the agent's own title) |
-| `x` | interrupt: sends Escape, and only to an agent that is working |
+| `x` | interrupt: sends Escape (C-c to Copilot), and only to an agent that is working |
 | `p` | toggle the live preview |
 | `r` | refresh |
 | `j` / `k` | move down / up |

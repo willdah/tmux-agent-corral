@@ -173,6 +173,21 @@ kill -0 "$w" 2>/dev/null || fail "focus hook signalled without a change"
 kill "$w"; wait "$w" 2>/dev/null || true
 t set -pu -t "$cur" @agent_state
 
+# x: a working Copilot gets C-c once and reads idle, so a second x is refused
+# (another C-c would quit it); any other agent gets Escape.
+cp="$(t new-window -d -P -F '#{pane_id}' -t side: "sh -c 'trap \"echo GOT_CC\" INT; while :; do sleep 0.2; done'")"
+TMUX_PANE=$cp "$here/agent-state" running copilot </dev/null
+"$here/agents" --interrupt "$cp"; sleep 0.5
+[ "$(t display -p -t "$cp" '#{@agent_state}')" = idle ] || fail "copilot not idle after x"
+"$here/agents" --interrupt "$cp"; sleep 0.5
+[ "$(t capture-pane -p -t "$cp" | grep -c GOT_CC)" = 1 ] || fail "x did not send copilot exactly one C-c"
+ec="$(t new-window -d -P -F '#{pane_id}' -t side: cat)"   # the tty echoes Escape as ^[
+TMUX_PANE=$ec "$here/agent-state" running </dev/null
+"$here/agents" --interrupt "$ec"; sleep 0.3
+t capture-pane -p -t "$ec" | grep -qF '^[' || fail "x sent no Escape"
+for q in $cp $ec; do t kill-pane -t "$q"; done
+grep -q sessionStart "$here/copilot-hooks.json" && fail "copilot sessionStart hook is back: it fires after the first prompt"
+
 # No agents left: the panel says so instead of going blank.
 for p in $a $b $d; do TMUX_PANE=$p "$here/agent-state" clear </dev/null; done
 "$here/agents" --list | grep -q 'no agents yet' || fail "empty state"
