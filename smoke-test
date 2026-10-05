@@ -38,12 +38,20 @@ since="$(t display -p -t "$b" '#{@agent_since}')"
 sleep 1; TMUX_PANE=$b "$here/agent-state" input </dev/null
 [ "$(t display -p -t "$b" '#{@agent_since}')" = "$since" ] || fail "repeat state reset @agent_since"
 
+# A change wakes the panel's waiter on the agents channel.
+t wait-for agents   # the signal the calls above left pending
+t wait-for agents & w=$!; sleep 0.3
+TMUX_PANE=$a "$here/agent-state" idle </dev/null; sleep 0.3
+kill -0 "$w" 2>/dev/null && { kill "$w"; fail "agent-state did not signal the agents channel"; }
+TMUX_PANE=$a "$here/agent-state" running </dev/null
+
 order="$("$here/agents" --list | cut -f1 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
 t select-pane -t "$b" -T '✳ Fix login'
 "$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "title not shown"
 "$here/agents" --list | grep "^$a" | grep -q 'mwork ' || fail "untitled row lost its place"
 "$here/agents" --list | grep "^$a" | grep -q 'msmokeproj ' || fail "project column"
+[ "$(t display -p -t "$a" '#{@agent_project}')" = smokeproj ] || fail "project not cached on the pane"
 [ "$("$here/agents" --list | grep "^$b" | cut -f3)" = 'Fix login · smokeproj' ] || fail "header field"
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
@@ -76,7 +84,7 @@ case "$tab" in *'●'*) ;; *) fail "tab: $tab" ;; esac
 
 t set -p -t "$c" @agent_name x
 TMUX_PANE=$c "$here/agent-state" clear </dev/null
-[ -z "$(t display -p -t "$c" '#{@agent_state}#{@agent_name}')" ] || fail "clear left state behind"
+[ -z "$(t display -p -t "$c" '#{@agent_state}#{@agent_name}#{@agent_dir}#{@agent_project}')" ] || fail "clear left state behind"
 
 # Docked panel: follows windows and sessions, and every window it leaves gets
 # its exact layout back. The hooks call `follow`; with no client attached here
@@ -96,8 +104,8 @@ for w in "$w2" "$s1" "$w1"; do "$here/agents-dock" follow "$w"; done
 [ "$(geo "$w2")" = "$g2" ] || fail "work:2 layout not restored: $(geo "$w2")"
 [ "$(geo "$s1")" = "$gs" ] || fail "side:1 layout not restored: $(geo "$s1")"
 
-# q after a refresh tick closes it (fzf hung on --track with an empty row id).
-sleep 2.5; t send-keys -t "$p" q; sleep 1
+# q after a reload closes it (fzf hung on --track with an empty row id).
+sleep 1; t wait-for -S agents; sleep 1; t send-keys -t "$p" q; sleep 1
 t list-panes -a -F '#{pane_id}' | grep -qx -- "$p" && fail "q did not close the docked panel"
 [ "$(geo "$w1")" = "$g1" ] || fail "work:1 layout not restored after q: $(geo "$w1")"
 

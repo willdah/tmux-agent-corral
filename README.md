@@ -61,7 +61,7 @@ Inside the panel:
 | `p` | toggle the live preview |
 | `r` / `j` / `k` / `q` | refresh / move / close |
 
-The panel refreshes itself every 2 seconds. Visiting a finished agent's pane turns its `✓` into a quiet idle `○`. A `▲` stays until the agent gets its answer.
+The panel refreshes the moment an agent changes state, and every 10 seconds to keep the ages current. Visiting a finished agent's pane turns its `✓` into a quiet idle `○`. A `▲` stays until the agent gets its answer.
 
 The docked panel moves into whichever window you switch to. Each window's layout is saved when the panel arrives and restored when it leaves, so your layouts never drift. It stays put in a zoomed window, or one narrower than 128 columns, and catches up on the next switch.
 
@@ -117,7 +117,7 @@ Usually that's an Escape interrupt in Claude (see [Known limits](#known-limits))
 It works when tmux runs on the same machine as the agent. If you SSH out of a tmux pane and start an agent on the remote box, the remote shell has no `$TMUX_PANE` and nothing gets tracked. Run tmux on the remote side instead.
 
 **Is something running in the background all the time?**
-No. The status line and tabs are plain tmux formats that read pane options. The panel refreshes every 2 seconds only while it's open, and the dock hooks do nothing while it's undocked.
+No. The status line and tabs are plain tmux formats that read pane options. The panel refreshes only while it's open (on each state change, and every 10 seconds), and the dock hooks do nothing while it's undocked.
 
 **Why does it need curl? Does it phone home?**
 No. curl only talks to fzf on `localhost` to refresh the open panel. Nothing leaves your machine.
