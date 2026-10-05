@@ -29,35 +29,44 @@ read -r AMBER BLUE GREEN TEXT DIM <<<"$(tmux display -p '#{@agent_c_input} #{@ag
 AMBER="${AMBER:-214}" BLUE="${BLUE:-110}" GREEN="${GREEN:-108}" TEXT="${TEXT:-250}" DIM="${DIM:-247}"
 B=$'\033[1m' UB=$'\033[22m'   # bold carries the footer's keys; NO_COLOR keeps it
 if [ -n "${NO_COLOR:-}" ]; then
-  c() { :; }; R=
+  AMBER= BLUE= GREEN= TEXT= DIM= R=
 else
-  c() { printf '\033[38;5;%sm' "$1"; }; R=$'\033[0m'
+  for v in AMBER BLUE GREEN TEXT DIM; do printf -v "$v" '\033[38;5;%sm' "${!v}"; done
+  R=$'\033[0m'
 fi
 
+# The helpers below write into the variable named by their first argument
+# (printf -v) instead of printing: --list runs on every refresh, and a $( )
+# per cell was most of its time.
+
+# age <var> <epoch>, counted from $now.
 age() {
-  local s=$(( $(date +%s) - ${1:-0} ))
-  if   [ "$s" -lt 60 ];    then printf '%ss' "$s"
-  elif [ "$s" -lt 3600 ];  then printf '%sm' $(( s / 60 ))
-  elif [ "$s" -lt 86400 ]; then printf '%sh' $(( s / 3600 ))
-  else                          printf '%sd' $(( s / 86400 ))
+  local s=$(( now - ${2:-0} ))
+  if   [ "$s" -lt 60 ];    then printf -v "$1" '%ss' "$s"
+  elif [ "$s" -lt 3600 ];  then printf -v "$1" '%sm' $(( s / 60 ))
+  elif [ "$s" -lt 86400 ]; then printf -v "$1" '%sh' $(( s / 3600 ))
+  else                          printf -v "$1" '%sd' $(( s / 86400 ))
   fi
 }
 
-# fit <width> <text>: truncate with … and pad to width, counting characters,
-# not bytes, so titles with › or emoji keep the columns aligned.
+# fit <var> <width> <text>: truncate with … and pad to width, counting
+# characters, not bytes, so titles with › or emoji keep the columns aligned.
 fit() {
-  local n="$1" s="$2"
+  local n="$2" s="$3"
   [ "${#s}" -gt "$n" ] && s="${s:0:n-1}…"
-  printf '%s%*s' "$s" $(( n - ${#s} )) ''
+  printf -v "$1" '%s%*s' "$s" $(( n - ${#s} )) ''
 }
 
-# The repo a path belongs to, named by its main checkout so every worktree of
-# a repo shows the same project.
+# project <var> <dir>: the repo a path belongs to, named by its main checkout
+# so every worktree of a repo shows the same project. Outside a repo, or when
+# git fails, it names the directory and returns 1.
 project() {
-  local g
-  g="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || { basename "$1"; return; }
+  local g rc=0
+  g="$(git -C "$2" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || { g="$2"; rc=1; }
   case "$g" in (*/.git) g="${g%/.git}" ;; esac
-  basename "$g"
+  g="${g##*/}"
+  printf -v "$1" '%s' "${g:-/}"
+  return "$rc"
 }
 
 # The agent is gone when its pane is back at a bare shell with nothing running
@@ -70,14 +79,21 @@ stale() {
 
 list() {
   local US=$'\037'   # unit separator: unlike a tab, read keeps empty fields
-  local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{pane_current_command}${US}#{pane_pid}${US}#{@agent_name}${US}#{pane_title}"
-  local rows host
-  host="$(hostname)"
-  rows="$(tmux list-panes -a -F "$fmt" | while IFS="$US" read -r id st since agent sess dir cmd pid name title; do
-    [ -n "$st" ] || continue
+  local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{pane_current_command}${US}#{pane_pid}${US}#{@agent_dir}${US}#{@agent_project}${US}#{@agent_name}${US}#{pane_title}"
+  local rows host="${HOSTNAME:-$(hostname)}" now
+  now="$(date +%s)"
+  rows="$(tmux list-panes -a -f '#{@agent_state}' -F "$fmt" | while IFS="$US" read -r id st since agent sess dir cmd pid pdir proj name title; do
     if stale "$cmd" "$pid"; then
-      tmux set -pu -t "$id" @agent_state 2>/dev/null || true
+      tmux set -pu -t "$id" @agent_state \; set -pu -t "$id" @agent_dir \; set -pu -t "$id" @agent_project 2>/dev/null || true
       continue
+    fi
+    # git runs once per pane and directory; the project then stays on the
+    # pane until agent-state clears it with the rest. Only a git answer is
+    # kept, so a failure (safe.directory, a repo made later) does not stick.
+    # ponytail: outside a repo git runs on every refresh; cache that too if
+    # agents there ever get common.
+    if [ "$pdir" != "$dir" ] && project proj "$dir"; then
+      tmux set -p -t "$id" @agent_dir "$dir" \; set -p -t "$id" @agent_project "$proj" 2>/dev/null || true
     fi
     case "$st" in   # (pattern) form: bash 3.2 misparses `pattern)` inside $( )
       (input)   rank=0 ;;
@@ -91,7 +107,7 @@ list() {
     case "$title" in ("π - ${dir##*/}") title= ;; esac
     case "${title%% *}" in (*[[:alnum:]]*) ;; (*) title="${title#* }" ;; esac
     case "$title" in ("$host"|'Claude Code'|'GitHub Copilot') title= ;; esac
-    printf "%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s\n" "$rank" "${since:-0}" "$id" "$st" "$agent" "$(project "$dir")" "${name:-${title:-$sess}}"
+    printf "%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s\n" "$rank" "${since:-0}" "$id" "$st" "$agent" "$proj" "${name:-${title:-$sess}}"
   done | sort -t"$US" -k1,1n -k2,2n)"
 
   # Width: fzf's columns inside its border, less 4 for padding, pointer and
@@ -109,12 +125,12 @@ list() {
   cols=$(( cols - 5 ))
 
   if [ -z "$rows" ]; then
-    printf -- '-\t%s  no agents yet. Start claude, copilot or pi in any pane.%s\n' "$(c $DIM)" "$R"
+    printf -- '-\t%s  no agents yet. Start claude, copilot or pi in any pane.%s\n' "$DIM" "$R"
     return
   fi
 
   while IFS="$US" read -r _ since id st agent proj title; do
-    local glyph label col who='' rest pw tw where=''
+    local glyph label col who='' rest pw tw where='' cell ago
     case "$st" in
       input)   glyph='▲' label='needs you' col=$AMBER ;;
       running) glyph='●' label='working'   col=$BLUE  ;;
@@ -129,17 +145,18 @@ list() {
     if [ "$rest" -ge 24 ]; then
       pw=$(( rest / 3 )); [ "$pw" -gt 14 ] && pw=14
       tw=$(( rest - pw ))
-      where=" $(c $DIM)$(fit "$pw" "$proj")$R"
+      fit cell "$pw" "$proj"; where=" $DIM$cell$R"
     else
       tw=$(( rest + 1 )); [ "$tw" -lt 6 ] && tw=6
     fi
+    fit cell "$tw" "$title"; age ago "$since"
     printf '%s\t %s%s %-9s%s  %s%s%s%s %s%4s%s%s%s%s\t%s · %s\n' \
       "$id" \
-      "$(c $col)" "$glyph" "$label" "$R" \
-      "$(c $TEXT)" "$(fit "$tw" "$title")" "$R" \
+      "$col" "$glyph" "$label" "$R" \
+      "$TEXT" "$cell" "$R" \
       "$where" \
-      "$(c $DIM)" "$(age "$since")" "$R" \
-      "$(c $DIM)" "$who" "$R" \
+      "$DIM" "$ago" "$R" \
+      "$DIM" "$who" "$R" \
       "$title" "$proj"
   done <<<"$rows"
 }
@@ -174,7 +191,7 @@ interrupt() {
 message() {
   is_pane "${1:-}" || return 0
   local msg
-  printf '\n  %s›%s message for %s: ' "$(c $BLUE)" "$R" "$(tmux display -p -t "$1" '#{session_name} › #{b:pane_current_path}')"
+  printf '\n  %s›%s message for %s: ' "$BLUE" "$R" "$(tmux display -p -t "$1" '#{session_name} › #{b:pane_current_path}')"
   IFS= read -re msg || return 0
   [ -n "$msg" ] || return 0
   tmux send-keys -t "$1" -l -- "$msg"
@@ -186,7 +203,7 @@ message() {
 rename() {
   is_pane "${1:-}" || return 0
   local name
-  printf '\n  %s›%s name for %s (empty resets): ' "$(c $BLUE)" "$R" "$(tmux display -p -t "$1" '#{session_name} › #{b:pane_current_path}')"
+  printf '\n  %s›%s name for %s (empty resets): ' "$BLUE" "$R" "$(tmux display -p -t "$1" '#{session_name} › #{b:pane_current_path}')"
   IFS= read -re name || return 0
   if [ -n "$name" ]; then tmux set -p -t "$1" @agent_name "$name"
   else tmux set -pu -t "$1" @agent_name 2>/dev/null || true
@@ -208,11 +225,14 @@ panel() {
   fi
   local footer='' k
   while IFS= read -r -d '|' k; do
-    footer+="$B$(c $TEXT)${k%% *}$UB$(c $DIM) ${k#* }  "
+    footer+="$B$TEXT${k%% *}$UB$DIM ${k#* }  "
   done <<<"$keys|"
 
-  # Refresh every 2s through fzf's own HTTP port; the loop ends when fzf does.
-  local tick="(while sleep 2 && curl -fs -XPOST localhost:\$FZF_PORT -d 'reload-sync($self --list)'; do :; done) >/dev/null 2>&1 &"
+  # Refresh through fzf's own HTTP port: at once when agent-state signals the
+  # agents channel, and every 10s for the ages and for agents that died
+  # without a word. Each loop ends on its first reload after fzf has gone.
+  local reload="curl -fs -XPOST localhost:\$FZF_PORT -d 'reload-sync($self --list)'"
+  local tick="(while sleep 10 && $reload; do :; done) >/dev/null 2>&1 & (while tmux wait-for agents && $reload; do :; done) >/dev/null 2>&1 &"
 
   local label='[ {1} != - ] && tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} "'
 
@@ -241,6 +261,9 @@ panel() {
     --bind="p:toggle-preview+transform-preview-label:$label" \
     --bind='j:down,k:up,q:abort,esc:abort' \
     >/dev/null || true
+  # Wake this panel's waiter so it sees fzf gone and exits now, not on the
+  # next state change; any other open panel just reloads once.
+  tmux wait-for -S agents 2>/dev/null || true
 }
 
 case "${1:-}" in

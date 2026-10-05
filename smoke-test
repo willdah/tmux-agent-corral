@@ -38,12 +38,50 @@ since="$(t display -p -t "$b" '#{@agent_since}')"
 sleep 1; TMUX_PANE=$b "$here/agent-state" input </dev/null
 [ "$(t display -p -t "$b" '#{@agent_since}')" = "$since" ] || fail "repeat state reset @agent_since"
 
+# listen: start a waiter on the agents channel ($w) that is really waiting,
+# not returning at once on a signal an earlier call left pending.
+listen() {
+  while :; do
+    t wait-for agents & w=$!; sleep 0.3
+    kill -0 "$w" 2>/dev/null && return 0
+  done
+}
+
+# A change wakes the panel's waiter on the agents channel.
+listen
+TMUX_PANE=$a "$here/agent-state" idle </dev/null; sleep 0.3
+kill -0 "$w" 2>/dev/null && { kill "$w"; fail "agent-state did not signal the agents channel"; }
+TMUX_PANE=$a "$here/agent-state" running </dev/null
+
+t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y   # the stale sweep drops these too
 order="$("$here/agents" --list | cut -f1 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
 t select-pane -t "$b" -T '✳ Fix login'
 "$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "title not shown"
 "$here/agents" --list | grep "^$a" | grep -q 'mwork ' || fail "untitled row lost its place"
 "$here/agents" --list | grep "^$a" | grep -q 'msmokeproj ' || fail "project column"
+[ -z "$(t display -p -t "$a" '#{@agent_dir}#{@agent_project}')" ] || fail "a failed git lookup was cached"
+# A repo and its worktree both show as the repo, and the answer is cached.
+g() { git -C "$tmp/repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+git init -q "$tmp/repo"; g commit -q --allow-empty -m init; g worktree add -q "$tmp/wt" 2>/dev/null
+qs=
+for dir in "$tmp/repo" "$tmp/wt"; do
+  q="$(t new-window -d -P -F '#{pane_id}' -t side: -c "$dir" 'sleep 600')"; qs="$qs $q"
+  TMUX_PANE=$q "$here/agent-state" idle </dev/null
+  "$here/agents" --list | grep "^$q" | grep -q 'mrepo ' || fail "project for $dir"
+  [ "$(t display -p -t "$q" '#{@agent_project}')" = repo ] || fail "project not cached for $dir"
+done
+t set -p -t "$q" @agent_project cached
+"$here/agents" --list | grep "^$q" | grep -q 'mcached ' || fail "project cache not used"
+t set -p -t "$q" @agent_dir /elsewhere   # as if the agent had moved here from there
+"$here/agents" --list | grep "^$q" | grep -q 'mrepo ' || fail "project cache not refreshed on a new directory"
+for q in $qs; do TMUX_PANE=$q "$here/agent-state" clear </dev/null; done
+plain="$(NO_COLOR=1 "$here/agents" --list)"
+case "$plain" in *$'\033'*) fail "NO_COLOR left colour codes in" ;; esac
+printf '%s\n' "$plain" | grep "^$b" | grep -q '▲ needs you  Fix login' || fail "NO_COLOR row"
+t set -g @agent_c_input 196
+"$here/agents" --list | grep "^$b" | grep -q $'\033\\[38;5;196m' || fail "@agent_c_input not used"
+t set -g @agent_c_input 214
 [ "$("$here/agents" --list | grep "^$b" | cut -f3)" = 'Fix login · smokeproj' ] || fail "header field"
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
@@ -58,7 +96,7 @@ printf 'Login → OAuth\n' | "$here/agents" --rename "$b" >/dev/null
 "$here/agents" --list | grep "^$b" | grep -q 'mLogin → OAuth ' || fail "rename not shown"
 printf '\n' | "$here/agents" --rename "$b" >/dev/null
 "$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "empty rename did not reset"
-[ -z "$(t display -p -t "$shell" '#{@agent_state}')" ] || fail "stale shell pane kept its state"
+[ -z "$(t display -p -t "$shell" '#{@agent_state}#{@agent_dir}#{@agent_project}')" ] || fail "stale shell pane kept its state"
 # Other harnesses: the name shows, the title they give themselves doesn't.
 TMUX_PANE=$c "$here/agent-state" running copilot </dev/null
 t select-pane -t "$c" -T 'GitHub Copilot'
@@ -76,7 +114,7 @@ case "$tab" in *'●'*) ;; *) fail "tab: $tab" ;; esac
 
 t set -p -t "$c" @agent_name x
 TMUX_PANE=$c "$here/agent-state" clear </dev/null
-[ -z "$(t display -p -t "$c" '#{@agent_state}#{@agent_name}')" ] || fail "clear left state behind"
+[ -z "$(t display -p -t "$c" '#{@agent_state}#{@agent_name}#{@agent_dir}#{@agent_project}')" ] || fail "clear left state behind"
 
 # Docked panel: follows windows and sessions, and every window it leaves gets
 # its exact layout back. The hooks call `follow`; with no client attached here
@@ -88,21 +126,56 @@ geo() { t list-panes -t "$1" -F '#{pane_id}@#{pane_left}:#{pane_width}' | sort |
 w1=$(wid work:1) w2=$(wid work:2) s1=$(wid side:1)
 g1=$(geo "$w1") g2=$(geo "$w2") gs=$(geo "$s1")
 
+# The panel's refresh loops (fzf's own command line names them too), told
+# apart from any real panel's by a before/after diff.
+waiters() { pgrep -f 'while tmux wait-for agents' | sort || true; }
+before="$(waiters)"
 "$here/agents-dock" toggle "$w1"
 p="$(t show -gv @agents_dock)"
 [ "$(t display -p -t "$p" '#{window_id}:#{pane_left}')" = "$w1:0" ] || fail "dock not on the left of work:1"
+# A state change shows at once, well inside the 10s tick.
+sleep 1.5
+n="$(t capture-pane -p -t "$p" | grep -c 'needs you')"
+TMUX_PANE=$a "$here/agent-state" input </dev/null; sleep 1
+[ "$(t capture-pane -p -t "$p" | grep -c 'needs you')" -gt "$n" ] || fail "panel did not reload on a state change"
+TMUX_PANE=$a "$here/agent-state" running </dev/null
+mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
+[ -n "$mine" ] || fail "panel has no refresh loop"
 for w in "$w2" "$s1" "$w1"; do "$here/agents-dock" follow "$w"; done
 [ "$(t display -p -t "$p" '#{window_id}')" = "$w1" ] || fail "dock did not follow back to work:1"
 [ "$(geo "$w2")" = "$g2" ] || fail "work:2 layout not restored: $(geo "$w2")"
 [ "$(geo "$s1")" = "$gs" ] || fail "side:1 layout not restored: $(geo "$s1")"
 
-# q after a refresh tick closes it (fzf hung on --track with an empty row id).
-sleep 2.5; t send-keys -t "$p" q; sleep 1
+# q after a reload closes it (fzf hung on --track with an empty row id).
+sleep 1; t wait-for -S agents; sleep 1; t send-keys -t "$p" q; sleep 1
 t list-panes -a -F '#{pane_id}' | grep -qx -- "$p" && fail "q did not close the docked panel"
 [ "$(geo "$w1")" = "$g1" ] || fail "work:1 layout not restored after q: $(geo "$w1")"
+gone() { for w in $mine; do kill -0 "$w" 2>/dev/null && fail "$1 left refresh loop $w running"; done; return 0; }
+gone q
+# Undocking kills the pane, so the panel never sends its parting signal.
+"$here/agents-dock" toggle "$w1"; sleep 1.5
+mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
+"$here/agents-dock" toggle "$w1"; sleep 0.5
+gone undocking
+
+# Seeing a finished agent dims it, and wakes the panel. With no client the
+# focus hook can't fire, so run its command on the current pane.
+hook="$(t show-hooks -g 'pane-focus-in[40]' | sed 's/^[^ ]* //')"
+cur="$(t display -p '#{pane_id}')"
+t set -p -t "$cur" @agent_state done
+listen
+t run-shell -C "$hook"; sleep 0.3
+[ "$(t display -p -t "$cur" '#{@agent_state}')" = idle ] || fail "focus did not dim a finished agent"
+kill -0 "$w" 2>/dev/null && { kill "$w"; fail "focus hook did not signal"; }
+listen
+t run-shell -C "$hook"; sleep 0.3   # idle now: no change, no signal
+kill -0 "$w" 2>/dev/null || fail "focus hook signalled without a change"
+kill "$w"; wait "$w" 2>/dev/null || true
+t set -pu -t "$cur" @agent_state
 
 # No agents left: the panel says so instead of going blank.
 for p in $a $b $d; do TMUX_PANE=$p "$here/agent-state" clear </dev/null; done
 "$here/agents" --list | grep -q 'no agents yet' || fail "empty state"
+NO_COLOR=1 "$here/agents" --list | grep -q $'\033' && fail "NO_COLOR left colour codes in the empty state"
 
 echo ok

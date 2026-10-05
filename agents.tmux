@@ -19,7 +19,7 @@ set-hook -g client-session-changed[40] 'if -F "#{@agents_dock}" "run-shell \"~/.
 # agents keep their ▲ until they are actually answered. pane-focus-in needs
 # focus events.
 set -g focus-events on
-set-hook -g pane-focus-in[40] 'if -F "#{==:#{@agent_state},done}" "set -p @agent_state idle"'
+set-hook -g pane-focus-in[40] 'if -F "#{==:#{@agent_state},done}" "set -p @agent_state idle ; wait-for -S agents"'
 
 # State colours (256-colour indexes), shared by the status formats and the
 # panel. Override any of them after sourcing this file.

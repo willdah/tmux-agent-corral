@@ -11,6 +11,11 @@
 #   @agent_state  input | running | done | idle
 #   @agent_since  epoch seconds of the last state change
 #   @agent_name   a name given in the agents panel (n); cleared here too
+#   @agent_dir, @agent_project
+#                 the panel's cached project lookup; cleared here too
+#
+# Every change signals the tmux wait-for channel `agents`, which an open
+# panel waits on to refresh at once.
 #
 # Always exits 0: a hook that fails must never get in the agent's way.
 
@@ -24,7 +29,7 @@ p="$TMUX_PANE"
 case "$state" in
   clear)
     tmux set -pu -t "$p" @agent \; set -pu -t "$p" @agent_state \; set -pu -t "$p" @agent_since \; \
-         set -pu -t "$p" @agent_name 2>/dev/null
+         set -pu -t "$p" @agent_name \; set -pu -t "$p" @agent_dir \; set -pu -t "$p" @agent_project 2>/dev/null
     ;;
   input|running|done|idle)
     # PostToolUse fires on every tool call; only a real change touches tmux,
@@ -37,7 +42,9 @@ case "$state" in
   *) exit 0 ;;
 esac
 
-# Redraw every attached client now instead of on the next status-interval tick.
+# Wake any open panel, and redraw every attached client now instead of on the
+# next status-interval tick.
+tmux wait-for -S agents 2>/dev/null
 tmux list-clients -F '#{client_name}' 2>/dev/null | while read -r c; do
   tmux refresh-client -S -t "$c" 2>/dev/null
 done
