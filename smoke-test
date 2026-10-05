@@ -178,4 +178,17 @@ for p in $a $b $d; do TMUX_PANE=$p "$here/agent-state" clear </dev/null; done
 "$here/agents" --list | grep -q 'no agents yet' || fail "empty state"
 NO_COLOR=1 "$here/agents" --list | grep -q $'\033' && fail "NO_COLOR left colour codes in the empty state"
 
+# install.sh, in a throwaway home with no tmux server to reload: the tmux.conf
+# block goes in once, and --remove takes out only that.
+h="$tmp/home"; mkdir "$h"; printf 'set -g mouse on\n' >"$h/.tmux.conf"
+inst() { out="$(env -u TMUX HOME="$h" TMUX_TMPDIR="$tmp" "$here/install.sh" "$@" 2>&1)" || fail "install.sh $*: $out"; }
+inst; inst
+[ "$(grep -c 'tmux-agent-corral >>>' "$h/.tmux.conf")" = 1 ] || fail "install.sh block not added exactly once"
+[ -L "$h/.config/tmux/agents" ] || fail "install.sh did not link the clone"
+inst --remove
+[ "$(cat "$h/.tmux.conf")" = 'set -g mouse on' ] || fail "install.sh --remove left: $(cat "$h/.tmux.conf")"
+[ -e "$h/.config/tmux/agents" ] && fail "install.sh --remove left the link"
+inst --no-tmux-conf
+grep -q corral "$h/.tmux.conf" && fail "--no-tmux-conf edited tmux.conf"
+
 echo ok
