@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart":        [{ "type": "command", "bash": "\"$HOME/.config/tmux/agents/agent-state\" idle copilot",    "timeoutSec": 5 }],
+    "userPromptSubmitted": [{ "type": "command", "bash": "\"$HOME/.config/tmux/agents/agent-state\" running copilot", "timeoutSec": 5 }],
+    "postToolUse":         [{ "type": "command", "bash": "\"$HOME/.config/tmux/agents/agent-state\" running copilot", "timeoutSec": 5 }],
+    "notification":        [{ "type": "command", "matcher": "permission_prompt|elicitation_dialog",
+                              "bash": "\"$HOME/.config/tmux/agents/agent-state\" input copilot",   "timeoutSec": 5 }],
+    "agentStop":           [{ "type": "command", "bash": "\"$HOME/.config/tmux/agents/agent-state\" done copilot",    "timeoutSec": 5 }],
+    "sessionEnd":          [{ "type": "command", "bash": "\"$HOME/.config/tmux/agents/agent-state\" clear copilot",   "timeoutSec": 5 }]
+  }
+}

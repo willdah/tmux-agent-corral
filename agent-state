@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# agent-state <input|running|done|idle|clear> [harness]
+#
+# Tags the calling tmux pane with an agent's state so the status line, window
+# tabs and the `agents` panel can show it. Harness-agnostic: anything that can
+# run a command on its lifecycle events (Claude Code hooks, a Codex notify
+# script, a wrapper) calls this. State lives in pane options, so it dies with
+# the pane and needs no cleanup.
+#
+#   @agent        harness name (default: claude)
+#   @agent_state  input | running | done | idle
+#   @agent_since  epoch seconds of the last state change
+#   @agent_name   a name given in the agents panel (n); cleared here too
+#
+# Always exits 0: a hook that fails must never get in the agent's way.
+
+[ -n "${TMUX_PANE:-}" ] || exit 0
+command -v tmux >/dev/null 2>&1 || exit 0
+[ -t 0 ] || cat >/dev/null 2>&1   # drain hook JSON on stdin so the writer never blocks
+
+state="${1:-}"
+p="$TMUX_PANE"
+
+case "$state" in
+  clear)
+    tmux set -pu -t "$p" @agent \; set -pu -t "$p" @agent_state \; set -pu -t "$p" @agent_since \; \
+         set -pu -t "$p" @agent_name 2>/dev/null
+    ;;
+  input|running|done|idle)
+    # PostToolUse fires on every tool call; only a real change touches tmux,
+    # so @agent_since keeps meaning "in this state since".
+    [ "$(tmux display -p -t "$p" '#{@agent_state}' 2>/dev/null)" = "$state" ] && exit 0
+    tmux set -p -t "$p" @agent "${2:-claude}" \; \
+         set -p -t "$p" @agent_state "$state" \; \
+         set -p -t "$p" @agent_since "$(date +%s)" 2>/dev/null
+    ;;
+  *) exit 0 ;;
+esac
+
+# Redraw every attached client now instead of on the next status-interval tick.
+tmux list-clients -F '#{client_name}' 2>/dev/null | while read -r c; do
+  tmux refresh-client -S -t "$c" 2>/dev/null
+done
+exit 0

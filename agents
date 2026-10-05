@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# agents [--watch]
+#
+# One panel for every agent session in every tmux session, window and pane.
+# Reads the pane options that `agent-state` sets; see that script for the
+# protocol. Rows that need you sort first (waiting on you, then finished,
+# then idle; working last), oldest wait at the top. A row shows the session's
+# name (one you gave it with n, else the pane title Claude Code sets, else the
+# tmux session) and its project (the git repo it runs in, else the directory).
+#
+#   agents            popup panel: Enter jumps to the agent and closes
+#   agents --watch    pinned panel: stays open, Enter jumps, p toggles preview
+#   agents --list     the rows only, tab-separated (pane id, display)
+#
+# Keys: ↵ jump · y approve · m message · n rename · x interrupt · r refresh · q close
+#
+# Columns fit the panel's width (fzf's $FZF_COLUMNS) and the focused row's full
+# name and project show in the header. NO_COLOR turns the colours off.
+set -euo pipefail
+
+self="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+die() { printf '\033[1;31mfail\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Palette: the state colours come from ~/.tmux.conf (@agent_c_*), so the panel
+# and the status line can't drift apart. Both greys clear 4.5:1 on a dark
+# terminal, the selected row included; a light theme sets @agent_c_text/dim.
+read -r AMBER BLUE GREEN TEXT DIM <<<"$(tmux display -p '#{@agent_c_input} #{@agent_c_running} #{@agent_c_done} #{@agent_c_text} #{@agent_c_dim}' 2>/dev/null || true)"
+AMBER="${AMBER:-214}" BLUE="${BLUE:-110}" GREEN="${GREEN:-108}" TEXT="${TEXT:-250}" DIM="${DIM:-247}"
+B=$'\033[1m' UB=$'\033[22m'   # bold carries the footer's keys; NO_COLOR keeps it
+if [ -n "${NO_COLOR:-}" ]; then
+  c() { :; }; R=
+else
+  c() { printf '\033[38;5;%sm' "$1"; }; R=$'\033[0m'
+fi
+
+age() {
+  local s=$(( $(date +%s) - ${1:-0} ))
+  if   [ "$s" -lt 60 ];    then printf '%ss' "$s"
+  elif [ "$s" -lt 3600 ];  then printf '%sm' $(( s / 60 ))
+  elif [ "$s" -lt 86400 ]; then printf '%sh' $(( s / 3600 ))
+  else                          printf '%sd' $(( s / 86400 ))
+  fi
+}
+
+# fit <width> <text>: truncate with … and pad to width, counting characters,
+# not bytes, so titles with › or emoji keep the columns aligned.
+fit() {
+  local n="$1" s="$2"
+  [ "${#s}" -gt "$n" ] && s="${s:0:n-1}…"
+  printf '%s%*s' "$s" $(( n - ${#s} )) ''
+}
+
+# The repo a path belongs to, named by its main checkout so every worktree of
+# a repo shows the same project.
+project() {
+  local g
+  g="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || { basename "$1"; return; }
+  case "$g" in (*/.git) g="${g%/.git}" ;; esac
+  basename "$g"
+}
+
+# The agent is gone when its pane is back at a bare shell with nothing running
+# under it (a crash or kill -9 skips SessionEnd). A bash wrapper like ai-loop
+# also shows as `bash`, but it has children, so it stays.
+stale() {
+  case "$1" in zsh|-zsh|bash|-bash|fish|sh|dash) ;; *) return 1 ;; esac
+  ! pgrep -P "$2" >/dev/null 2>&1
+}
+
+list() {
+  local US=$'\037'   # unit separator: unlike a tab, read keeps empty fields
+  local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{pane_current_command}${US}#{pane_pid}${US}#{@agent_name}${US}#{pane_title}"
+  local rows host
+  host="$(hostname)"
+  rows="$(tmux list-panes -a -F "$fmt" | while IFS="$US" read -r id st since agent sess dir cmd pid name title; do
+    [ -n "$st" ] || continue
+    if stale "$cmd" "$pid"; then
+      tmux set -pu -t "$id" @agent_state 2>/dev/null || true
+      continue
+    fi
+    case "$st" in   # (pattern) form: bash 3.2 misparses `pattern)` inside $( )
+      (input)   rank=0 ;;
+      (done)    rank=1 ;;
+      (running) rank=3 ;;
+      (*)       rank=2 ;;
+    esac
+    # Claude prefixes its title with a status glyph (✳, or a spinner); tmux
+    # falls back to the hostname when nothing set one. Copilot and Pi only
+    # name themselves (Pi with its directory), which says nothing new.
+    case "$title" in ("π - ${dir##*/}") title= ;; esac
+    case "${title%% *}" in (*[[:alnum:]]*) ;; (*) title="${title#* }" ;; esac
+    case "$title" in ("$host"|'Claude Code'|'GitHub Copilot') title= ;; esac
+    printf "%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s\n" "$rank" "${since:-0}" "$id" "$st" "$agent" "$(project "$dir")" "${name:-${title:-$sess}}"
+  done | sort -t"$US" -k1,1n -k2,2n)"
+
+  # Width: fzf's columns inside its border, less 4 for padding, pointer and
+  # gutter and one spare for the scrollbar. fzf reports 0 during its start
+  # event, so the first list measures fzf's terminal itself (its width less
+  # the border's 4): not the tmux pane, which under a popup is the pane
+  # beneath it. Status, age and gaps are fixed; the title gets what's left
+  # after the project's third (up to 14 columns).
+  local cols="${FZF_COLUMNS:-0}" w=''
+  if [ "$cols" -le 0 ]; then
+    w="$( (stty size </dev/tty) 2>/dev/null || true)"
+    cols=$(( ${w#* } - 4 ))
+    [ "$cols" -gt 0 ] || cols=80
+  fi
+  cols=$(( cols - 5 ))
+
+  if [ -z "$rows" ]; then
+    printf -- '-\t%s  no agents yet. Start claude, copilot or pi in any pane.%s\n' "$(c $DIM)" "$R"
+    return
+  fi
+
+  while IFS="$US" read -r _ since id st agent proj title; do
+    local glyph label col who='' rest pw tw where=''
+    case "$st" in
+      input)   glyph='▲' label='needs you' col=$AMBER ;;
+      running) glyph='●' label='working'   col=$BLUE  ;;
+      done)    glyph='✓' label='finished'  col=$GREEN ;;
+      *)       glyph='○' label='idle'      col=$DIM   ;;
+    esac
+    # Claude is the default harness; only another one is worth the columns.
+    [ "$agent" = claude ] || who="  $agent"
+    rest=$(( cols - 20 - ${#who} ))
+    # Too narrow for both: the project goes (the header still names it) so
+    # the age, which the sort runs on, never gets cut off.
+    if [ "$rest" -ge 24 ]; then
+      pw=$(( rest / 3 )); [ "$pw" -gt 14 ] && pw=14
+      tw=$(( rest - pw ))
+      where=" $(c $DIM)$(fit "$pw" "$proj")$R"
+    else
+      tw=$(( rest + 1 )); [ "$tw" -lt 6 ] && tw=6
+    fi
+    printf '%s\t %s%s %-9s%s  %s%s%s%s %s%4s%s%s%s%s\t%s · %s\n' \
+      "$id" \
+      "$(c $col)" "$glyph" "$label" "$R" \
+      "$(c $TEXT)" "$(fit "$tw" "$title")" "$R" \
+      "$where" \
+      "$(c $DIM)" "$(age "$since")" "$R" \
+      "$(c $DIM)" "$who" "$R" \
+      "$title" "$proj"
+  done <<<"$rows"
+}
+
+# A row id is a pane id; the empty-state row uses "-". (fzf 0.74 hangs on
+# --track after a reload when the tracked row's id field is empty.)
+is_pane() { case "${1:-}" in %*) return 0 ;; esac; return 1; }
+
+jump() {
+  is_pane "${1:-}" || return 0
+  tmux switch-client -t "$1" \; select-window -t "$1" \; select-pane -t "$1"
+}
+
+# Only an agent that is actually waiting gets keystrokes; anywhere else an
+# Enter or Escape lands in whatever happens to be on screen.
+waiting() { [ "$(tmux display -p -t "$1" '#{@agent_state}' 2>/dev/null)" = input ]; }
+
+approve() {
+  is_pane "${1:-}" && waiting "$1" || { tmux display-message "agents: that one isn't waiting for you"; return 0; }
+  tmux send-keys -t "$1" Enter
+}
+
+# Escape stops a working agent; on a prompt it would dismiss the question, so
+# only a working agent gets it.
+interrupt() {
+  is_pane "${1:-}" || return 0
+  [ "$(tmux display -p -t "$1" '#{@agent_state}' 2>/dev/null)" = running ] ||
+    { tmux display-message "agents: that one isn't working"; return 0; }
+  tmux send-keys -t "$1" Escape
+}
+
+message() {
+  is_pane "${1:-}" || return 0
+  local msg
+  printf '\n  %s›%s message for %s: ' "$(c $BLUE)" "$R" "$(tmux display -p -t "$1" '#{session_name} › #{b:pane_current_path}')"
+  IFS= read -re msg || return 0
+  [ -n "$msg" ] || return 0
+  tmux send-keys -t "$1" -l -- "$msg"
+  tmux send-keys -t "$1" Enter
+}
+
+# The name shows in place of the agent's own title until the pane closes or
+# the agent ends; an empty name hands the row back to that title.
+rename() {
+  is_pane "${1:-}" || return 0
+  local name
+  printf '\n  %s›%s name for %s (empty resets): ' "$(c $BLUE)" "$R" "$(tmux display -p -t "$1" '#{session_name} › #{b:pane_current_path}')"
+  IFS= read -re name || return 0
+  if [ -n "$name" ]; then tmux set -p -t "$1" @agent_name "$name"
+  else tmux set -pu -t "$1" @agent_name 2>/dev/null || true
+  fi
+}
+
+panel() {
+  command -v fzf >/dev/null 2>&1 || die "fzf not found (brew install fzf)"
+  local watch="${1:-}" enter preview keys
+  # The docked panel is narrow, so its key hints are shorter.
+  if [ "$watch" = watch ]; then
+    enter="execute-silent($self --jump {1})"
+    preview='down,60%,follow,border-top,hidden'
+    keys='↵ jump|y approve|m msg|n name|x stop|p peek|q close'
+  else
+    enter="become($self --jump {1})"
+    preview='down,65%,follow,border-top'
+    keys='↵ jump|y approve|m message|n rename|x interrupt|p preview|q close'
+  fi
+  local footer='' k
+  while IFS= read -r -d '|' k; do
+    footer+="$B$(c $TEXT)${k%% *}$UB$(c $DIM) ${k#* }  "
+  done <<<"$keys|"
+
+  # Refresh every 2s through fzf's own HTTP port; the loop ends when fzf does.
+  local tick="(while sleep 2 && curl -fs -XPOST localhost:\$FZF_PORT -d 'reload-sync($self --list)'; do :; done) >/dev/null 2>&1 &"
+
+  local label='[ {1} != - ] && tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} "'
+
+  # The first list loads through reload so it, too, sees $FZF_COLUMNS.
+  fzf </dev/null \
+    --ansi --no-input --no-sort --layout=reverse --cycle \
+    --delimiter=$'\t' --with-nth=2 --id-nth=1 --track \
+    --listen --bind "start:reload-sync($self --list)+execute-silent:$tick" \
+    --bind "resize:reload-sync($self --list)" \
+    --border=rounded --border-label=' agents ' --border-label-pos=3 \
+    --info=hidden --pointer='▌' --gutter=' ' \
+    --footer="${footer%  }" \
+    --footer-border=line \
+    --preview='[ {1} != - ] && tmux capture-pane -pe -J -t {1} -S -80 | awk "{l[NR]=\$0} NF{n=NR} END{for(i=1;i<=n;i++)print l[i]}"' \
+    --preview-window="$preview" \
+    --bind="focus:transform-header(printf '%s' {3})+transform-preview-label:$label" \
+    --color='fg:250,bg:-1,fg+:255,bg+:236,hl:110,hl+:110' \
+    --color='border:238,label:110,preview-border:238,preview-label:247,footer-border:238' \
+    --color='pointer:110,marker:110,gutter:-1,info:247,header:250' \
+    --bind="enter:$enter" \
+    --bind="y:execute-silent($self --approve {1})+reload-sync($self --list)" \
+    --bind="x:execute-silent($self --interrupt {1})" \
+    --bind="m:execute($self --message {1})+reload-sync($self --list)" \
+    --bind="n:execute($self --rename {1})+reload-sync($self --list)" \
+    --bind="r:reload-sync($self --list)" \
+    --bind="p:toggle-preview+transform-preview-label:$label" \
+    --bind='j:down,k:up,q:abort,esc:abort' \
+    >/dev/null || true
+}
+
+case "${1:-}" in
+  '')          panel ;;
+  --watch)     panel watch ;;
+  --list)      list ;;
+  --jump)      jump "${2:-}" ;;
+  --approve)   approve "${2:-}" ;;
+  --interrupt) interrupt "${2:-}" ;;
+  --message)   message "${2:-}" ;;
+  --rename)    rename "${2:-}" ;;
+  *)           die "usage: $(basename "$0") [--watch|--list]" ;;
+esac

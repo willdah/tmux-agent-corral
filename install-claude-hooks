@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# install-claude-hooks [--remove] [settings.json]
+#
+# Wires Claude Code's lifecycle hooks to agent-state so every Claude session
+# shows up in the tmux status line, window tabs and agents panel. Merges into
+# the existing settings (default ~/.claude/settings.json): only entries that
+# call agent-state are touched, everything else is left as it is. Idempotent:
+# a re-run replaces our entries rather than adding duplicates.
+#
+#   --remove   take our hooks out again
+set -euo pipefail
+
+die() { printf '\033[1;31mfail\033[0m %s\n' "$*" >&2; exit 1; }
+ok()  { printf '\033[1;32m ok \033[0m %s\n' "$*" >&2; }
+
+remove=0
+[ "${1:-}" = --remove ] && { remove=1; shift; }
+f="${1:-$HOME/.claude/settings.json}"
+cmd="$HOME/.config/tmux/agents/agent-state"
+
+command -v jq >/dev/null 2>&1 || die "jq not found (brew install jq)"
+mkdir -p "$(dirname "$f")"
+[ -s "$f" ] || printf '{}\n' >"$f"
+
+tmp="$(mktemp "$f.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+
+jq --arg cmd "$cmd" --argjson remove "$remove" '
+  # Ours = any hook whose command runs agent-state, wherever it was installed.
+  def ours: (.command // "") | test("agent-state");
+  # Drops only the groups and events that held nothing but our hooks; anything
+  # that was already empty stays as it was.
+  def strip:
+    .hooks //= {}
+    | .hooks |= with_entries(
+        .value as $was
+        | .value |= map(
+            if any(.hooks[]?; ours)
+            then (.hooks |= map(select(ours | not))) | select(.hooks | length > 0)
+            else . end)
+        | select((.value | length > 0) or ($was | length == 0)));
+  def add(event; matcher; state):
+    .hooks[event] += [
+      (if matcher then {matcher: matcher} else {} end)
+      + {hooks: [{type: "command", command: "\"\($cmd)\" \(state)", timeout: 5}]}
+    ];
+
+  strip
+  | if $remove == 1 then . else
+      add("SessionStart";     "startup|resume|clear";                 "idle")
+    | add("UserPromptSubmit"; null;                                   "running")
+    | add("PostToolUse";      null;                                   "running")
+    | add("Notification";     "permission_prompt|elicitation_dialog"; "input")
+    | add("Stop";             null;                                   "done")
+    | add("SessionEnd";       null;                                   "clear")
+    end
+' "$f" >"$tmp" || die "could not update $f (is it valid JSON?)"
+
+if cmp -s "$tmp" "$f"; then
+  ok "claude agent hooks already $([ $remove = 1 ] && echo removed || echo installed) in $f"
+  exit 0
+fi
+
+cp "$f" "$f.bak"
+mv "$tmp" "$f"
+ok "claude agent hooks $([ $remove = 1 ] && echo removed from || echo installed in) $f (previous copy: $f.bak)"

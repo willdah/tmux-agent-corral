@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# smoke-test: drives agent-state and agents on a throwaway tmux server loaded
+# with agents.tmux and the README's status snippet, and checks the panel,
+# status line and tabs.
+set -euo pipefail
+
+here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tmp="$(mktemp -d)"
+proj="$tmp/smokeproj"; mkdir "$proj"   # not a git repo: the project is the directory
+conf="$tmp/tmux.conf"
+cat >"$conf" <<CONF
+set -g base-index 1
+setw -g pane-base-index 1
+source-file "$here/agents.tmux"
+set -ag status-right "#{E:@agents_status}"
+setw -ag window-status-format "#{E:@agent_tab}"
+CONF
+sock="agents-smoke-$$"
+t() { tmux -L "$sock" -f "$conf" "$@"; }
+trap 't kill-server 2>/dev/null || true; rm -rf "$tmp"' EXIT
+fail() { printf 'FAIL %s\n' "$*" >&2; exit 1; }
+
+cd "$proj"
+t new-session -d -s work -x 160 -y 40 'sleep 600' \; \
+  split-window 'sleep 600' \; new-window 'sleep 600' \; \
+  new-session -d -s side 'sleep 600' \; new-window -t side:
+export TMUX="$(t display -p '#{socket_path}'),0,0"
+id() { t display -p -t "$1" '#{pane_id}'; }
+a=$(id work:1.1) b=$(id work:1.2) c=$(id work:2.1) d=$(id side:1.1) shell=$(id side:2.1)
+
+TMUX_PANE=$a "$here/agent-state" running </dev/null
+TMUX_PANE=$b "$here/agent-state" input   </dev/null
+TMUX_PANE=$c "$here/agent-state" done    </dev/null
+TMUX_PANE=$d "$here/agent-state" input   </dev/null
+TMUX_PANE=$shell "$here/agent-state" running </dev/null   # bare shell: stale
+
+since="$(t display -p -t "$b" '#{@agent_since}')"
+sleep 1; TMUX_PANE=$b "$here/agent-state" input </dev/null
+[ "$(t display -p -t "$b" '#{@agent_since}')" = "$since" ] || fail "repeat state reset @agent_since"
+
+order="$("$here/agents" --list | cut -f1 | tr '\n' ' ')"
+case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
+t select-pane -t "$b" -T '✳ Fix login'
+"$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "title not shown"
+"$here/agents" --list | grep "^$a" | grep -q 'mwork ' || fail "untitled row lost its place"
+"$here/agents" --list | grep "^$a" | grep -q 'msmokeproj ' || fail "project column"
+[ "$("$here/agents" --list | grep "^$b" | cut -f3)" = 'Fix login · smokeproj' ] || fail "header field"
+while IFS=$'\t' read -r _ row _; do
+  row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
+  [ "${#row}" -le 57 ] || fail "row wider than the 64-column dock: $row"
+done < <(FZF_COLUMNS=60 "$here/agents" --list)
+while IFS=$'\t' read -r _ row _; do
+  row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
+  case "$row" in *smokeproj*) fail "narrow row kept the project: $row" ;; esac
+  [ "${#row}" -le 35 ] || fail "row wider than a 42-column panel: $row"
+done < <(FZF_COLUMNS=40 "$here/agents" --list)
+printf 'Login → OAuth\n' | "$here/agents" --rename "$b" >/dev/null
+"$here/agents" --list | grep "^$b" | grep -q 'mLogin → OAuth ' || fail "rename not shown"
+printf '\n' | "$here/agents" --rename "$b" >/dev/null
+"$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "empty rename did not reset"
+[ -z "$(t display -p -t "$shell" '#{@agent_state}')" ] || fail "stale shell pane kept its state"
+# Other harnesses: the name shows, the title they give themselves doesn't.
+TMUX_PANE=$c "$here/agent-state" running copilot </dev/null
+t select-pane -t "$c" -T 'GitHub Copilot'
+"$here/agents" --list | grep "^$c" | grep -q 'mwork .*copilot' || fail "copilot row"
+TMUX_PANE=$c "$here/agent-state" done pi </dev/null
+t select-pane -t "$c" -T "π - $(basename "$(t display -p -t "$c" '#{pane_current_path}')")"
+"$here/agents" --list | grep "^$c" | grep -q 'mwork .*pi' || fail "pi row"
+
+status="$(t display -p -t "$a" '#{E:status-right}')"
+case "$status" in *'▲▲'*'●'*'✓'*) ;; *) fail "status-right: $status" ;; esac
+case "$status" in *colour214*colour110*colour108*) ;; *) fail "status colours: $status" ;; esac
+tab="$(t display -p -t "$a" '#{E:window-status-format}')"
+case "$tab" in *'▲'*) ;; *) fail "tab: $tab" ;; esac   # marks run in pane order
+case "$tab" in *'●'*) ;; *) fail "tab: $tab" ;; esac
+
+t set -p -t "$c" @agent_name x
+TMUX_PANE=$c "$here/agent-state" clear </dev/null
+[ -z "$(t display -p -t "$c" '#{@agent_state}#{@agent_name}')" ] || fail "clear left state behind"
+
+# Docked panel: follows windows and sessions, and every window it leaves gets
+# its exact layout back. The hooks call `follow`; with no client attached here
+# they never fire, so the test calls it the same way.
+t show-hooks -g session-window-changed | grep -q agents-dock || fail "follow hook missing"
+t show-hooks -g client-session-changed | grep -q agents-dock || fail "session hook missing"
+wid() { t display -p -t "$1" '#{window_id}'; }
+geo() { t list-panes -t "$1" -F '#{pane_id}@#{pane_left}:#{pane_width}' | sort | tr '\n' ' '; }
+w1=$(wid work:1) w2=$(wid work:2) s1=$(wid side:1)
+g1=$(geo "$w1") g2=$(geo "$w2") gs=$(geo "$s1")
+
+"$here/agents-dock" toggle "$w1"
+p="$(t show -gv @agents_dock)"
+[ "$(t display -p -t "$p" '#{window_id}:#{pane_left}')" = "$w1:0" ] || fail "dock not on the left of work:1"
+for w in "$w2" "$s1" "$w1"; do "$here/agents-dock" follow "$w"; done
+[ "$(t display -p -t "$p" '#{window_id}')" = "$w1" ] || fail "dock did not follow back to work:1"
+[ "$(geo "$w2")" = "$g2" ] || fail "work:2 layout not restored: $(geo "$w2")"
+[ "$(geo "$s1")" = "$gs" ] || fail "side:1 layout not restored: $(geo "$s1")"
+
+# q after a refresh tick closes it (fzf hung on --track with an empty row id).
+sleep 2.5; t send-keys -t "$p" q; sleep 1
+t list-panes -a -F '#{pane_id}' | grep -qx -- "$p" && fail "q did not close the docked panel"
+[ "$(geo "$w1")" = "$g1" ] || fail "work:1 layout not restored after q: $(geo "$w1")"
+
+# No agents left: the panel says so instead of going blank.
+for p in $a $b $d; do TMUX_PANE=$p "$here/agent-state" clear </dev/null; done
+"$here/agents" --list | grep -q 'no agents yet' || fail "empty state"
+
+echo ok

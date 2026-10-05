@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# agents-dock <toggle|follow|close> [window]
+#
+# The agents panel as one pane docked on the left that follows you to every
+# window and session. A pane belongs to one window, so the switch hooks in
+# ~/.tmux.conf move it: on arrival the window's own layout is saved, on
+# departure it is put back, so windows never drift.
+#
+#   toggle [window]   dock the panel in window (default: current), or undock it
+#   follow <window>   move the docked panel into window (the hooks call this)
+#   close             the panel's own exit path, when you press q in it
+#
+# Saved layouts are applied rather than replayed: tmux 3.7's join-pane -b
+# lists the joined pane after its target, so re-applying a layout captured
+# with the panel in it swaps the panel with its neighbour.
+set -euo pipefail
+
+WIDTH=64
+here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+dock() {   # the docked pane's id, if it is still alive
+  local p
+  p="$(tmux show -gv @agents_dock 2>/dev/null)" || return 1
+  # Not `display -t`: tmux 3.7 exits 0 for a pane that no longer exists.
+  if [ -n "$p" ] && tmux list-panes -a -F '#{pane_id}' | grep -qx -- "$p"; then
+    printf '%s' "$p"
+  else
+    tmux set -gu @agents_dock 2>/dev/null || true
+    return 1
+  fi
+}
+
+bare() { tmux show -wv -t "$1" @agents_bare 2>/dev/null || true; }
+
+# Remove the panel and give its window back the layout it had before. One
+# tmux command, so it still lands when the caller is the panel itself.
+undock() {
+  local p="$1" w
+  w="$(tmux display -p -t "$p" '#{window_id}')"
+  tmux set -gu @agents_dock \; kill-pane -t "$p" \; \
+       select-layout -t "$w" "$(bare "$w")" 2>/dev/null || true
+}
+
+case "${1:-}" in
+  toggle)
+    if p="$(dock)"; then undock "$p"; exit 0; fi
+    w="${2:-$(tmux display -p '#{window_id}')}"
+    tmux set -w -t "$w" @agents_bare "$(tmux display -p -t "$w" '#{window_layout}')"
+    p="$(tmux split-window -d -fhb -l "$WIDTH" -t "$w" -P -F '#{pane_id}' \
+           "'$here/agents' --watch; exec '$here/agents-dock' close")"
+    tmux set -g @agents_dock "$p"
+    ;;
+
+  follow)
+    w="${2:?usage: agents-dock follow <window>}"
+    p="$(dock)" || exit 0
+    old="$(tmux display -p -t "$p" '#{window_id}')"
+    [ "$w" = "$old" ] && exit 0
+    # Joining unzooms a zoomed window and fails in a narrow one: leave the
+    # panel where it is and let it catch up on the next switch.
+    [ "$(tmux display -p -t "$w" '#{window_zoomed_flag}')" = 1 ] && exit 0
+    [ "$(tmux display -p -t "$w" '#{window_width}')" -ge $(( WIDTH * 2 )) ] || exit 0
+    tmux set -w -t "$w" @agents_bare "$(tmux display -p -t "$w" '#{window_layout}')"
+    first="$(tmux list-panes -t "$w" -F '#{pane_id}' | head -1)"
+    tmux join-pane -d -fhb -l "$WIDTH" -s "$p" -t "$first"
+    # A stale layout (panes added or closed while docked) is refused by tmux,
+    # which leaves its own reflow: harmless.
+    tmux select-layout -t "$old" "$(bare "$old")" 2>/dev/null || true
+    ;;
+
+  close)
+    [ -n "${TMUX_PANE:-}" ] && undock "$TMUX_PANE"
+    ;;
+
+  *) printf 'usage: %s <toggle|follow|close> [window]\n' "$(basename "$0")" >&2; exit 1 ;;
+esac
