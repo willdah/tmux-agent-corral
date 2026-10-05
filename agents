@@ -58,13 +58,15 @@ fit() {
 }
 
 # project <var> <dir>: the repo a path belongs to, named by its main checkout
-# so every worktree of a repo shows the same project.
+# so every worktree of a repo shows the same project. Outside a repo, or when
+# git fails, it names the directory and returns 1.
 project() {
-  local g
-  g="$(git -C "$2" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || g="$2"
+  local g rc=0
+  g="$(git -C "$2" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || { g="$2"; rc=1; }
   case "$g" in (*/.git) g="${g%/.git}" ;; esac
   g="${g##*/}"
   printf -v "$1" '%s' "${g:-/}"
+  return "$rc"
 }
 
 # The agent is gone when its pane is back at a bare shell with nothing running
@@ -86,9 +88,11 @@ list() {
       continue
     fi
     # git runs once per pane and directory; the project then stays on the
-    # pane until agent-state clears it with the rest.
-    if [ "$pdir" != "$dir" ]; then
-      project proj "$dir"
+    # pane until agent-state clears it with the rest. Only a git answer is
+    # kept, so a failure (safe.directory, a repo made later) does not stick.
+    # ponytail: outside a repo git runs on every refresh; cache that too if
+    # agents there ever get common.
+    if [ "$pdir" != "$dir" ] && project proj "$dir"; then
       tmux set -p -t "$id" @agent_dir "$dir" \; set -p -t "$id" @agent_project "$proj" 2>/dev/null || true
     fi
     case "$st" in   # (pattern) form: bash 3.2 misparses `pattern)` inside $( )
