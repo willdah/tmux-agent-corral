@@ -94,6 +94,45 @@ The protocol is one script. `agent-state <input|running|done|idle|clear> [name]`
 - Pi has no permission prompts of its own, so its `▲` only shows while an extension asks you something.
 - With two terminals attached, the docked panel follows whichever one switched windows last.
 
+## FAQ
+
+**Was this built by AI?**
+
+Yes it was, but this response was artisanally crafted by a human with soft hands.
+
+**Is it coral, corral, or Carl?**
+
+It's corral, like the _golden_ one. Not like the reef or Rick Grimes shouting at his son during a zombie apocalypse.
+
+**An agent isn't showing up.**
+Agents that were already running when you installed need a restart to pick up the hooks. The agent also has to run inside a tmux pane: `agent-state` reads `$TMUX_PANE`, and without it the script does nothing.
+
+**Can a broken hook break my agent?**
+No. `agent-state` always exits 0 and swallows its own errors, so the worst that can happen is a missing mark.
+
+**A pane is stuck on `●` (or anything else).**
+Usually that's an Escape interrupt in Claude (see [Known limits](#known-limits)); your next prompt fixes it. To clear it by hand, run `~/.config/tmux/agents/agent-state clear` in that pane. Closing the pane also clears it, because the state lives in the pane.
+
+**Does it work over SSH?**
+It works when tmux runs on the same machine as the agent. If you SSH out of a tmux pane and start an agent on the remote box, the remote shell has no `$TMUX_PANE` and nothing gets tracked. Run tmux on the remote side instead.
+
+**Is something running in the background all the time?**
+No. The status line and tabs are plain tmux formats that read pane options. The panel refreshes every 2 seconds only while it's open, and the dock hooks do nothing while it's undocked.
+
+**Why does it need curl? Does it phone home?**
+No. curl only talks to fzf on `localhost` to refresh the open panel. Nothing leaves your machine.
+
+**What does `y` actually approve?**
+It sends one Enter, so you get whatever option the agent's prompt has highlighted. It only does that when the agent is waiting (`▲`), so a stray `y` can't submit a half-typed prompt to a working agent.
+
+**I already use `prefix + a` / `prefix + A`.**
+Rebind them after the `source-file` line:
+
+```tmux
+unbind a
+bind g display-popup -B -E -w 90% -h 85% "~/.config/tmux/agents/agents"
+```
+
 ## Test
 
 ```sh
