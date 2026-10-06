@@ -24,7 +24,7 @@ cd "$proj"
 t new-session -d -s work -x 160 -y 40 'sleep 600' \; \
   split-window 'sleep 600' \; new-window 'sleep 600' \; \
   new-session -d -s side 'sleep 600' \; new-window -t side:
-export TMUX="$(t display -p '#{socket_path}'),0,0"
+TMUX="$(t display -p '#{socket_path}'),0,0"; export TMUX
 id() { t display -p -t "$1" '#{pane_id}'; }
 a=$(id work:1.1) b=$(id work:1.2) c=$(id work:2.1) d=$(id side:1.1) shell=$(id side:2.1)
 
@@ -224,14 +224,27 @@ NO_COLOR=1 "$here/agents" --list | grep -q $'\033' && fail "NO_COLOR left colour
 
 # install.sh, in a throwaway home with no tmux server to reload: the tmux.conf
 # block goes in once, and --remove takes out only that.
-h="$tmp/home"; mkdir "$h"; printf 'set -g mouse on\n' >"$h/.tmux.conf"
+# Claude, Copilot and Pi look installed, and Claude already has a hook of the
+# user's own that must survive both.
+h="$tmp/home"; mkdir -p "$h/.claude" "$h/.copilot" "$h/.pi"; printf 'set -g mouse on\n' >"$h/.tmux.conf"
+mine='{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo mine"}]}]}}'
+printf '%s\n' "$mine" >"$h/.claude/settings.json"
 inst() { out="$(env -u TMUX HOME="$h" TMUX_TMPDIR="$tmp" "$here/install.sh" "$@" 2>&1)" || fail "install.sh $*: $out"; }
+ours() { jq '[.hooks[][].hooks[] | select(.command | test("agent-state"))] | length' "$h/.claude/settings.json"; }
 inst; inst
 [ "$(grep -c 'tmux-agent-corral >>>' "$h/.tmux.conf")" = 1 ] || fail "install.sh block not added exactly once"
 [ -L "$h/.config/tmux/agents" ] || fail "install.sh did not link the clone"
+[ "$(ours)" = 6 ] || fail "claude hooks: want 6 of ours after two installs, got $(ours)"
+jq -e '.hooks.Stop[] | select(.hooks[0].command == "echo mine")' "$h/.claude/settings.json" >/dev/null || fail "install dropped the user's claude hook"
+[ -L "$h/.copilot/hooks/agent-state.json" ] || fail "install.sh did not link the copilot hooks"
+[ -L "$h/.pi/agent/extensions/agent-state.ts" ] || fail "install.sh did not link the pi extension"
+jq empty "$here/copilot-hooks.json" || fail "copilot-hooks.json is not valid JSON"
 inst --remove
 [ "$(cat "$h/.tmux.conf")" = 'set -g mouse on' ] || fail "install.sh --remove left: $(cat "$h/.tmux.conf")"
 [ -e "$h/.config/tmux/agents" ] && fail "install.sh --remove left the link"
+[ "$(jq -cS . "$h/.claude/settings.json")" = "$(jq -cS . <<<"$mine")" ] || fail "claude --remove left: $(jq -c . "$h/.claude/settings.json")"
+[ -e "$h/.copilot/hooks/agent-state.json" ] && fail "install.sh --remove left the copilot hooks"
+[ -e "$h/.pi/agent/extensions/agent-state.ts" ] && fail "install.sh --remove left the pi extension"
 inst --no-tmux-conf
 grep -q corral "$h/.tmux.conf" && fail "--no-tmux-conf edited tmux.conf"
 # The piped-in install runs the clone at ~/.config/tmux/agents, and
