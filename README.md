@@ -87,7 +87,7 @@ It takes out the hooks, the links and the tmux.conf block.
 | Key | Action |
 |-----|--------|
 | `prefix + a` | agents panel as a popup; `↵` jumps to the agent and closes |
-| `prefix + A` | toggle the docked panel: a full-height pane on the left that follows you to every window and session; `↵` jumps, the panel stays |
+| `prefix + A` | toggle the docked panel: a full-height pane on the left that follows you to every window and session and keeps focus; `↵` shows the agent, the cursor stays in the panel |
 
 Inside the panel:
 
