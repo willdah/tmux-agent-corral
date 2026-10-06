@@ -9,7 +9,7 @@
 # tmux session) and its project (the git repo it runs in, else the directory).
 #
 #   agents            popup panel: Enter jumps to the agent and closes
-#   agents --watch    pinned panel: stays open, Enter jumps, p toggles preview
+#   agents --watch    pinned panel: stays open, Enter shows the agent and keeps focus, p toggles preview
 #   agents --list     the rows only, tab-separated (pane id, display)
 #
 # Keys: ↵ jump · y approve · m message · n rename · x interrupt · r refresh · q close
@@ -165,9 +165,21 @@ list() {
 # --track after a reload when the tracked row's id field is empty.)
 is_pane() { case "${1:-}" in %*) return 0 ;; esac; return 1; }
 
+# With "stay" (the docked panel), the panel follows to the agent's window and
+# keeps focus; the agent is that window's last pane. It never gets focus, so
+# mark a finished one seen here as the focus hook would.
 jump() {
   is_pane "${1:-}" || return 0
   tmux switch-client -t "$1" \; select-window -t "$1" \; select-pane -t "$1"
+  [ "${2:-}" = stay ] || return 0
+  local w dock
+  w="$(tmux display -p -t "$1" '#{window_id}')"
+  "${self%/*}/agents-dock" follow "$w"
+  dock="$(tmux show -gv @agents_dock 2>/dev/null)" || return 0
+  [ "$(tmux display -p -t "$dock" '#{window_id}')" = "$w" ] && tmux select-pane -t "$dock"
+  if [ "$(tmux display -p -t "$1" '#{@agent_state}')" = done ]; then
+    tmux set -p -t "$1" @agent_state idle \; wait-for -S agents
+  fi
 }
 
 # Only an agent that is actually waiting gets keystrokes; anywhere else an
@@ -222,7 +234,7 @@ panel() {
   local watch="${1:-}" enter preview keys
   # The docked panel is narrow, so its key hints are shorter.
   if [ "$watch" = watch ]; then
-    enter="execute-silent($self --jump {1})"
+    enter="execute-silent($self --jump {1} stay)"
     preview='down,60%,follow,border-top,hidden'
     keys='↵ jump|y approve|m msg|n name|x stop|p peek|q close'
   else
@@ -277,7 +289,7 @@ case "${1:-}" in
   '')          panel ;;
   --watch)     panel watch ;;
   --list)      list ;;
-  --jump)      jump "${2:-}" ;;
+  --jump)      jump "${2:-}" "${3:-}" ;;
   --approve)   approve "${2:-}" ;;
   --interrupt) interrupt "${2:-}" ;;
   --message)   message "${2:-}" ;;

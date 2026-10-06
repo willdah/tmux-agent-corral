@@ -133,6 +133,7 @@ before="$(waiters)"
 "$here/agents-dock" toggle "$w1"
 p="$(t show -gv @agents_dock)"
 [ "$(t display -p -t "$p" '#{window_id}:#{pane_left}')" = "$w1:0" ] || fail "dock not on the left of work:1"
+[ "$(t display -p -t "$p" '#{pane_active}')" = 1 ] || fail "docking did not focus the panel"
 # A state change shows at once, well inside the 10s tick.
 sleep 1.5
 n="$(t capture-pane -p -t "$p" | grep -c 'needs you')"
@@ -157,6 +158,21 @@ gone q
 mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
 "$here/agents-dock" toggle "$w1"; sleep 0.5
 gone undocking
+
+# Enter in the docked panel: the panel follows to the agent's window and keeps
+# focus, the agent is that window's last pane, and a finished one reads seen.
+# switch-client needs a client, so attach a control-mode one. Its hooks would
+# call the installed copy, so drop them: the jump calls follow itself.
+t set-hook -gu 'session-window-changed[40]' \; set-hook -gu 'client-session-changed[40]'
+{ echo 'refresh-client -C 160x40'; sleep 30; } | t -C attach -t work:1 >/dev/null & cc=$!
+sleep 0.5
+"$here/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"
+TMUX_PANE=$c "$here/agent-state" done </dev/null
+"$here/agents" --jump "$c" stay
+[ "$(t display -p -t "$p" '#{window_id}:#{pane_active}')" = "$w2:1" ] || fail "jump did not keep focus in the docked panel"
+[ "$(t display -p -t "$c" '#{pane_last}')" = 1 ] || fail "jump did not make the agent its window's last pane"
+[ "$(t display -p -t "$c" '#{@agent_state}')" = idle ] || fail "jump did not mark a finished agent seen"
+"$here/agents-dock" toggle "$w2"; kill "$cc" 2>/dev/null || true
 
 # Seeing a finished agent dims it, and wakes the panel. With no client the
 # focus hook can't fire, so run its command on the current pane.
