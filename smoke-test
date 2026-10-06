@@ -234,5 +234,11 @@ inst --remove
 [ -e "$h/.config/tmux/agents" ] && fail "install.sh --remove left the link"
 inst --no-tmux-conf
 grep -q corral "$h/.tmux.conf" && fail "--no-tmux-conf edited tmux.conf"
+# The piped-in install runs the clone at ~/.config/tmux/agents, and
+# ~/.config/tmux may be a link into a dotfiles repo.
+h="$tmp/home2"; mkdir -p "$h/.config" "$tmp/dotfiles/tmux/agents"; ln -s "$tmp/dotfiles/tmux" "$h/.config/tmux"
+(cd "$here" && git ls-files -z | xargs -0 tar cf -) | tar xf - -C "$tmp/dotfiles/tmux/agents"
+out="$(env -u TMUX HOME="$h" TMUX_TMPDIR="$tmp" "$h/.config/tmux/agents/install.sh" --no-tmux-conf 2>&1)" ||
+  fail "install.sh from a clone under a linked ~/.config/tmux: $out"
 
 echo ok

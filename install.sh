@@ -89,7 +89,7 @@ main() {
     [ -f "$HOME/.claude/settings.json" ] && "$here/install-claude-hooks" --remove
     unlink_ours "$copilot"
     unlink_ours "$pi"
-    [ "$dest" = "$here" ] || unlink_ours "$dest"
+    unlink_ours "$dest"
     if [ $edit_conf = 1 ] && grep -qsF "$begin" "$conf"; then
       # Rewritten in place, not replaced, so a symlinked tmux.conf stays a link.
       cp "$conf" "$conf.bak"
@@ -107,7 +107,9 @@ main() {
   [ "$(printf '0.71\n%s\n' "$v" | sort -V | head -1)" = 0.71 ] ||
     die "fzf $v is too old; the panel needs 0.71+ (https://github.com/junegunn/fzf#installation)"
 
-  [ "$dest" = "$here" ] || link "$here" "$dest"
+  # -ef, not =: here is the physical path, and dest may sit under a link
+  # (~/.config/tmux kept in a dotfiles repo).
+  [ "$dest" -ef "$here" ] || link "$here" "$dest"
 
   # Agent configs are touched only for agents that are installed.
   if command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude" ]; then "$here/install-claude-hooks"; fi
