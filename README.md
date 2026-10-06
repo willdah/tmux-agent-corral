@@ -93,7 +93,7 @@ Inside the panel:
 
 | Key | Action |
 |-----|--------|
-| `↵` | jump to the agent |
+| `↵` | jump to the agent (the popup closes; the docked panel keeps focus) |
 | `y` | approve: sends Enter, and only to an agent that is waiting |
 | `m` | type a message to it |
 | `n` | give it a name (empty resets to the agent's own title) |

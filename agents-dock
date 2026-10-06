@@ -53,9 +53,6 @@ case "${1:-}" in
 
   follow)
     w="${2:?usage: agents-dock follow <window>}"
-    # The hook and a jump from the panel can both call this at once; without
-    # the lock both join, and the second saves a layout with the panel in it.
-    tmux wait-for -L agents-dock; trap 'tmux wait-for -U agents-dock' EXIT
     p="$(dock)" || exit 0
     old="$(tmux display -p -t "$p" '#{window_id}')"
     [ "$w" = "$old" ] && exit 0
