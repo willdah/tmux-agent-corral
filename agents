@@ -29,7 +29,7 @@ read -r AMBER BLUE GREEN TEXT DIM <<<"$(tmux display -p '#{@agent_c_input} #{@ag
 AMBER="${AMBER:-214}" BLUE="${BLUE:-110}" GREEN="${GREEN:-108}" TEXT="${TEXT:-250}" DIM="${DIM:-247}"
 B=$'\033[1m' UB=$'\033[22m'   # bold carries the footer's keys; NO_COLOR keeps it
 if [ -n "${NO_COLOR:-}" ]; then
-  AMBER= BLUE= GREEN= TEXT= DIM= R=
+  AMBER='' BLUE='' GREEN='' TEXT='' DIM='' R=''
 else
   for v in AMBER BLUE GREEN TEXT DIM; do printf -v "$v" '\033[38;5;%sm' "${!v}"; done
   R=$'\033[0m'
@@ -82,7 +82,8 @@ list() {
   local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{pane_current_command}${US}#{pane_pid}${US}#{@agent_dir}${US}#{@agent_project}${US}#{@agent_name}${US}#{pane_title}"
   local rows host="${HOSTNAME:-$(hostname)}" now
   now="$(date +%s)"
-  rows="$(tmux list-panes -a -f '#{@agent_state}' -F "$fmt" | while IFS="$US" read -r id st since agent sess dir cmd pid pdir proj name title; do
+  # tmux before 3.5 prints the separator as a literal \037; turn it back.
+  rows="$(tmux list-panes -a -f '#{@agent_state}' -F "$fmt" | sed "s/\\\\037/$US/g" | while IFS="$US" read -r id st since agent sess dir cmd pid pdir proj name title; do
     if stale "$cmd" "$pid"; then
       tmux set -pu -t "$id" @agent_state \; set -pu -t "$id" @agent_dir \; set -pu -t "$id" @agent_project 2>/dev/null || true
       continue

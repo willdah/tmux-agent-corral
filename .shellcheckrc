@@ -1,0 +1,2 @@
+# `done` is one of the agent states, not a stray loop keyword.
+disable=SC1010
