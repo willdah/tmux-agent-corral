@@ -162,17 +162,30 @@ gone undocking
 # Enter in the docked panel: the panel follows to the agent's window and keeps
 # focus, the agent is that window's last pane, and a finished one reads seen.
 # switch-client needs a client, so attach a control-mode one. Its hooks would
-# call the installed copy, so drop them: the jump calls follow itself.
+# call the installed copy, so drop them until the end: the jump calls follow
+# itself.
 t set-hook -gu 'session-window-changed[40]' \; set-hook -gu 'client-session-changed[40]'
 { echo 'refresh-client -C 160x40'; sleep 30; } | t -C attach -t work:1 >/dev/null & cc=$!
-sleep 0.5
+for _ in $(seq 50); do t list-clients | grep -q . && break; sleep 0.1; done
 "$here/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"
 TMUX_PANE=$c "$here/agent-state" done </dev/null
 "$here/agents" --jump "$c" stay
 [ "$(t display -p -t "$p" '#{window_id}:#{pane_active}')" = "$w2:1" ] || fail "jump did not keep focus in the docked panel"
 [ "$(t display -p -t "$c" '#{pane_last}')" = 1 ] || fail "jump did not make the agent its window's last pane"
 [ "$(t display -p -t "$c" '#{@agent_state}')" = idle ] || fail "jump did not mark a finished agent seen"
-"$here/agents-dock" toggle "$w2"; kill "$cc" 2>/dev/null || true
+# Into a zoomed window the panel can't follow, so the agent gets focus.
+"$here/agents-dock" toggle "$w2"; "$here/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"
+z="$(t split-window -d -P -F '#{pane_id}' -t "$c" 'sleep 600')"; t resize-pane -Z -t "$c"
+"$here/agents" --jump "$c" stay
+[ "$(t display -p -t "$p" '#{window_id}')" = "$w1" ] || fail "the panel followed into a zoomed window"
+[ "$(t display -p -t "$c" '#{pane_active}#{window_zoomed_flag}')" = 11 ] || fail "jump into a zoomed window did not focus the agent"
+t kill-pane -t "$z"
+# The popup's jump focuses the agent.
+"$here/agents" --jump "$b"
+[ "$(t display -p '#{pane_id}')" = "$b" ] || fail "popup jump did not focus the agent"
+"$here/agents-dock" toggle "$w1"; kill "$cc" 2>/dev/null || true
+TMUX_PANE=$c "$here/agent-state" clear </dev/null
+t source-file "$here/agents.tmux"
 
 # Seeing a finished agent dims it, and wakes the panel. With no client the
 # focus hook can't fire, so run its command on the current pane.
