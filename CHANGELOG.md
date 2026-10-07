@@ -4,8 +4,8 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-New entries are written by the release workflow from the conventional commits
-merged since the previous release.
+New entries are written by the release workflow from the conventional commit
+messages and PR titles merged since the previous release.
 
 ## [0.3.3](https://github.com/willdah/tmux-agent-corral/compare/0.3.2...0.3.3) - 2026-10-06
 

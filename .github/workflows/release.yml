@@ -40,27 +40,32 @@ jobs:
           esac
           echo "$bump bump: ${last:-none} -> $next"
 
-          # Changelog entry from the same commits' subjects, committed to main
-          # and tagged there. If main moved meanwhile the push fails, and the
-          # run for that newer push releases everything instead.
-          range="${last:+$last..}HEAD"
+          # Changelog entry from the same lines the bump read, so whatever
+          # released is listed. The commit and its tag push to main together:
+          # if main moved meanwhile neither lands, and the run for that newer
+          # push releases everything instead.
           section() {
             local lines
-            lines="$(git log --no-merges --format=%s "$range" | grep -E "$2" |
-              sed -E 's/^[a-z]+(\([^)]+\))?!: /- **Breaking:** /; s/^[a-z]+(\([^)]+\))?: /- /' | awk '!seen[$0]++')"
+            lines="$(grep -E "$2" <<<"$msgs" | sed -E 's/^([a-z]+(\([^)]+\))?!|BREAKING[ -]CHANGE): /- **Breaking:** /; s/^[a-z]+(\([^)]+\))?: /- /' | awk '!seen[$0]++')"
             if [ -n "$lines" ]; then printf '### %s\n\n%s\n\n' "$1" "$lines"; fi
           }
           notes="$(section Added '^feat(\([^)]+\))?: '
-                   section Changed '^([a-z]+(\([^)]+\))?!|perf(\([^)]+\))?): '
+                   section Changed '^[a-z]+(\([^)]+\))?!: |^BREAKING[ -]CHANGE: |^perf(\([^)]+\))?: '
                    section Fixed '^fix(\([^)]+\))?: ')"
           url="https://github.com/$GITHUB_REPOSITORY"
           link="${last:+$url/compare/$last...$next}"
-          printf '%s\n\n' "## [$next](${link:-$url/releases/tag/$next}) - $(date -u +%F)" ${notes:+"$notes"} > "$RUNNER_TEMP/entry.md"
-          awk -v f="$RUNNER_TEMP/entry.md" '/^## / && !done { while ((getline l < f) > 0) print l; done = 1 } 1' CHANGELOG.md > "$RUNNER_TEMP/CHANGELOG.md"
+          entry="$(printf '%s\n\n' "## [$next](${link:-$url/releases/tag/$next}) - $(date -u +%F)" ${notes:+"$notes"})"
+          ENTRY="$entry" awk '/^## / && !done { print ENVIRON["ENTRY"] "\n"; done = 1 } 1' CHANGELOG.md > "$RUNNER_TEMP/CHANGELOG.md"
           mv "$RUNNER_TEMP/CHANGELOG.md" CHANGELOG.md
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898283+github-actions[bot]@users.noreply.github.com'
           git commit -qam "chore(release): $next"
-          git push -q origin HEAD:main
-          gh release create "$next" --target "$(git rev-parse HEAD)" --title "$next" --notes "$notes" --generate-notes
+          git tag "$next"
+          git push -q --atomic origin HEAD:main "$next"
+          # The tag is already on main; retry only the API call.
+          for _ in 1 2 3; do
+            gh release create "$next" --verify-tag --title "$next" --notes "$notes" --generate-notes && exit 0
+            sleep 15
+          done
+          exit 1
