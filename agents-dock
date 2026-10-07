@@ -7,7 +7,9 @@
 # departure it is put back, so windows never drift.
 #
 #   toggle [window]   dock and focus the panel in window (default: current), or undock it
-#   follow <window>   move the docked panel into window (the hooks call this)
+#   follow <window> [tmux command ...]
+#                     move the docked panel into window (the hooks call this),
+#                     then run the commands; exits 2 if the panel couldn't join
 #   close             the panel's own exit path, when you press q in it
 #
 # Saved layouts are applied rather than replayed: tmux 3.7's join-pane -b
@@ -52,20 +54,33 @@ case "${1:-}" in
     ;;
 
   follow)
-    w="${2:?usage: agents-dock follow <window>}"
-    p="$(dock)" || exit 0
+    # Any further arguments are a tmux command chain (`;` as its own word)
+    # run in the same call as the join, so tmux redraws once: a jump's switch
+    # and focus moves ride along instead of each showing a frame.
+    w="${2:?usage: agents-dock follow <window> [tmux command ...]}"; shift 2
+    chain() { [ $# -eq 0 ] || tmux "$@"; }
+    p="$(dock)" || { chain "$@"; exit 0; }
     old="$(tmux display -p -t "$p" '#{window_id}')"
-    [ "$w" = "$old" ] && exit 0
+    [ "$w" = "$old" ] && { chain "$@"; exit 0; }
     # Joining unzooms a zoomed window and fails in a narrow one: leave the
     # panel where it is and let it catch up on the next switch.
-    [ "$(tmux display -p -t "$w" '#{window_zoomed_flag}')" = 1 ] && exit 0
-    [ "$(tmux display -p -t "$w" '#{window_width}')" -ge $(( WIDTH * 2 )) ] || exit 0
+    [ "$(tmux display -p -t "$w" '#{window_zoomed_flag}')" = 1 ] && { chain "$@"; exit 0; }
+    [ "$(tmux display -p -t "$w" '#{window_width}')" -ge $(( WIDTH * 2 )) ] || { chain "$@"; exit 0; }
     tmux set -w -t "$w" @agents_bare "$(tmux display -p -t "$w" '#{window_layout}')"
     first="$(tmux list-panes -t "$w" -F '#{pane_id}' | head -1)"
-    tmux join-pane -d -fhb -l "$WIDTH" -s "$p" -t "$first"
+    join=(join-pane -d -fhb -l "$WIDTH" -s "$p" -t "$first")
+    [ $# -eq 0 ] || join+=(\; "$@")
+    status=0; tmux "${join[@]}" || status=$?
+    # One exit status covers the whole call. A failed join skips the rest, so
+    # run that on its own; if only a later command failed, the panel is in.
+    if [ "$status" != 0 ] && [ "$(tmux display -p -t "$p" '#{window_id}')" = "$old" ]; then
+      chain "$@"; exit 2
+    fi
+    # By now the old window is out of sight, so its reflow is never drawn.
     # A stale layout (panes added or closed while docked) is refused by tmux,
     # which leaves its own reflow: harmless.
     tmux select-layout -t "$old" "$(bare "$old")" 2>/dev/null || true
+    exit "$status"
     ;;
 
   close)
