@@ -178,24 +178,22 @@ list() {
 # --track after a reload when the tracked row's id field is empty.)
 is_pane() { case "${1:-}" in %*) return 0 ;; esac; return 1; }
 
-# With "stay" (the docked panel), the panel moves to the agent's window before
-# the switch, so the switch hooks find it already there, then takes focus back:
-# the agent is that window's last pane. Where the panel can't follow (a zoomed
-# or narrow window) the agent keeps focus. Either way the focus hook may not
-# fire on the agent, so mark a finished one seen here.
+# With "stay" (the docked panel), the panel moves to the agent's window in the
+# same tmux call as the switch, so the switch hooks find it already there and
+# tmux draws only the end result. It then takes focus back: the agent is that
+# window's last pane. Where the panel can't follow (a zoomed or narrow window)
+# the agent keeps focus. Either way the focus hook may not fire on the agent,
+# so mark a finished one seen here.
 jump() {
   is_pane "${1:-}" || return 0
-  if [ "${2:-}" = stay ]; then
-    "${self%/*}/agents-dock" follow "$(tmux display -p -t "$1" '#{window_id}')" ||
-      tmux display-message "agents: the panel could not follow"
-  fi
-  tmux switch-client -t "$1" \; select-window -t "$1" \; select-pane -t "$1"
-  [ "${2:-}" = stay ] || return 0
-  local dock
-  dock="$(tmux show -gv @agents_dock 2>/dev/null)" && tmux select-pane -t "$dock"
+  local go=(switch-client -t "$1" \; select-window -t "$1" \; select-pane -t "$1") dock
+  [ "${2:-}" = stay ] || { tmux "${go[@]}"; return 0; }
+  dock="$(tmux show -gv @agents_dock 2>/dev/null)" && go+=(\; select-pane -t "$dock")
   if [ "$(tmux display -p -t "$1" '#{@agent_state}')" = done ]; then
-    tmux set -p -t "$1" @agent_state idle \; wait-for -S agents
+    go+=(\; set -p -t "$1" @agent_state idle \; wait-for -S agents)
   fi
+  "${self%/*}/agents-dock" follow "$(tmux display -p -t "$1" '#{window_id}')" "${go[@]}" ||
+    tmux display-message "agents: the panel could not follow"
 }
 
 # Only an agent that is actually waiting gets keystrokes; anywhere else an
