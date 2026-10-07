@@ -54,7 +54,7 @@ kill -0 "$w" 2>/dev/null && { kill "$w"; fail "agent-state did not signal the ag
 TMUX_PANE=$a "$here/agent-state" running </dev/null
 
 t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y   # the stale sweep drops these too
-order="$("$here/agents" --list | cut -f1 | tr '\n' ' ')"
+order="$("$here/agents" --list | tail -n +2 | cut -f1 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
 t select-pane -t "$b" -T '✳ Fix login'
 "$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "title not shown"
@@ -82,14 +82,15 @@ printf '%s\n' "$plain" | grep "^$b" | grep -q '▲ needs you  Fix login' || fail
 t set -g @agent_c_input 196
 "$here/agents" --list | grep "^$b" | grep -q $'\033\\[38;5;196m' || fail "@agent_c_input not used"
 t set -g @agent_c_input 214
-[ "$("$here/agents" --list | grep "^$b" | cut -f3)" = 'Fix login · smokeproj' ] || fail "header field"
+h="$(NO_COLOR=1 "$here/agents" --list | sed -n 1p)"; case "$h" in "-	 STATE"*" SESSION "*" PROJECT "*" AGE") ;; *) fail "column headings: $h" ;; esac
+NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list | sed -n 1p | grep -q PROJECT && fail "narrow headings kept the project"
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
   [ "${#row}" -le 57 ] || fail "row wider than the 64-column dock: $row"
 done < <(FZF_COLUMNS=60 "$here/agents" --list)
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
-  case "$row" in *smokeproj*) fail "narrow row kept the project: $row" ;; esac
+  case "$row" in *smokeproj*|*PROJECT*) fail "narrow row kept the project: $row" ;; esac
   [ "${#row}" -le 35 ] || fail "row wider than a 42-column panel: $row"
 done < <(FZF_COLUMNS=40 "$here/agents" --list)
 printf 'Login → OAuth\n' | "$here/agents" --rename "$b" >/dev/null
@@ -121,6 +122,8 @@ TMUX_PANE=$c "$here/agent-state" clear </dev/null
 # they never fire, so the test calls it the same way.
 t show-hooks -g session-window-changed | grep -q agents-dock || fail "follow hook missing"
 t show-hooks -g client-session-changed | grep -q agents-dock || fail "session hook missing"
+t show-hooks -g 'pane-focus-in[41]' | grep -q 'agents --ping' || fail "focus-in title hook missing"
+t show-hooks -g 'pane-focus-out[40]' | grep -q 'agents --ping' || fail "focus-out title hook missing"
 wid() { t display -p -t "$1" '#{window_id}'; }
 geo() { t list-panes -t "$1" -F '#{pane_id}@#{pane_left}:#{pane_width}' | sort | tr '\n' ' '; }
 w1=$(wid work:1) w2=$(wid work:2) s1=$(wid side:1)
@@ -158,6 +161,17 @@ gone q
 mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
 "$here/agents-dock" toggle "$w1"; sleep 0.5
 gone undocking
+
+# The docked panel's title is marked while it has focus and plain once it
+# goes. The focus hooks need a client, so ping by hand.
+t select-window -t "$w1"; "$here/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"; sleep 1.5
+title() { t capture-pane -p -t "$p" | sed -n 1p; }
+title | grep -q '\[ agent-corral \]' || fail "focused panel's title not marked: $(title)"
+t last-pane -t "$w1"; "$here/agents" --ping; sleep 0.5
+title | grep -q '─  agent-corral  ─' || fail "unfocused panel's title still marked: $(title)"
+t select-pane -t "$p"; "$here/agents" --ping; sleep 0.5
+title | grep -q '\[ agent-corral \]' || fail "refocused panel's title not marked: $(title)"
+"$here/agents-dock" toggle "$w1"; sleep 0.5
 
 # Enter in the docked panel: the panel follows to the agent's window and keeps
 # focus, the agent is that window's last pane, and a finished one reads seen.
@@ -220,6 +234,9 @@ grep -q sessionStart "$here/copilot-hooks.json" && fail "copilot sessionStart ho
 # No agents left: the panel says so instead of going blank.
 for p in $a $b $d; do TMUX_PANE=$p "$here/agent-state" clear </dev/null; done
 "$here/agents" --list | grep -q 'no agents yet' || fail "empty state"
+# fzf pins the first line, so the headings must still lead or the empty row
+# becomes the header.
+[ "$("$here/agents" --list | sed -n 1p | grep -c SESSION)$("$here/agents" --list | wc -l | tr -d ' ')" = 12 ] || fail "empty state lost its headings"
 NO_COLOR=1 "$here/agents" --list | grep -q $'\033' && fail "NO_COLOR left colour codes in the empty state"
 
 # install.sh, in a throwaway home with no tmux server to reload: the tmux.conf
