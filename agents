@@ -54,15 +54,16 @@ age() {
   fi
 }
 
-# widths: from $cols, sets tw, pw (0: no project column) and aw (0: no agent
-# column), the same for every row so the columns line up. The title stops at
+# widths: from $cols, sets tw, pw (0: no project column), aw (0: no agent
+# column) and rw, the width of a row, the same for every row so the columns line up. The title stops at
 # 36 so a wide popup doesn't open a gulf before the project. The agent column
 # comes only with room to spare (not in the dock), then the project goes when
 # too narrow for it, so state, title and age, which the sort runs on, always
 # show.
 widths() {
+  local fixed=21   # state, gaps and age: everything but title, project and agent
+  local rest=$(( cols - fixed - 1 ))   # less the space before the project
   aw=7   # copilot, the longest built-in harness; a longer name gets cut
-  local rest=$(( cols - 22 ))
   if [ $(( rest - aw - 1 )) -ge 40 ]; then rest=$(( rest - aw - 1 )); else aw=0; fi
   if [ "$rest" -ge 24 ]; then
     pw=$(( rest / 3 )); [ "$pw" -gt 22 ] && pw=22
@@ -70,6 +71,7 @@ widths() {
   else
     pw=0 tw=$(( rest + 1 )); [ "$tw" -ge 6 ] || tw=6
   fi
+  rw=$(( fixed + tw + (pw > 0 ? pw + 1 : 0) + (aw > 0 ? aw + 1 : 0) ))
 }
 
 # fit <var> <width> <text>: truncate with … and pad to width, counting
@@ -154,7 +156,7 @@ list() {
 
   # The headings: fzf pins the first line (--header-lines), so it's printed
   # even with no rows. They line up with the rows.
-  local tw pw aw cell where='' who=''
+  local tw pw aw rw cell where='' who=''
   widths
   [ "$pw" -gt 0 ] && { fit cell "$pw" PROJECT; where=" $cell"; }
   [ "$aw" -gt 0 ] && { fit cell "$aw" AGENT; who=" $cell"; }
@@ -169,8 +171,7 @@ list() {
   # A group heading: the name centred between bars as wide as the rows (or
   # the panel, if narrower), cut with … when it can't fit. The floor keeps
   # every cut non-negative on an absurdly narrow panel.
-  local prev='' hw bars s n
-  hw=$(( 21 + tw + (pw > 0 ? pw + 1 : 0) + (aw > 0 ? aw + 1 : 0) ))
+  local prev='' hw=$rw bars s n
   [ "$hw" -le "$cols" ] || hw=$cols
   hw=$(( hw - 1 ))
   [ "$hw" -ge 5 ] || hw=5
