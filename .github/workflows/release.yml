@@ -39,4 +39,26 @@ jobs:
             patch) next="$major.$minor.$((patch + 1))" ;;
           esac
           echo "$bump bump: ${last:-none} -> $next"
-          gh release create "$next" --target "$GITHUB_SHA" --title "$next" --generate-notes
+
+          # Changelog entry from the same lines the bump read, so whatever
+          # released is listed. The commit and its tag push to main together:
+          # if main moved meanwhile neither lands, and the run for that newer
+          # push releases everything instead.
+          notes="$(./changelog-notes <<<"$msgs")"
+          url="https://github.com/$GITHUB_REPOSITORY"
+          link="${last:+$url/compare/$last...$next}"
+          entry="$(printf '%s\n\n' "## [$next](${link:-$url/releases/tag/$next}) - $(date -u +%F)" ${notes:+"$notes"})"
+          ENTRY="$entry" awk '/^## / && !done { print ENVIRON["ENTRY"] "\n"; done = 1 } 1' CHANGELOG.md > "$RUNNER_TEMP/CHANGELOG.md"
+          mv "$RUNNER_TEMP/CHANGELOG.md" CHANGELOG.md
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898283+github-actions[bot]@users.noreply.github.com'
+          git commit -qam "chore(release): $next"
+          git tag "$next"
+          git push -q --atomic origin HEAD:main "$next"
+          # The tag is already on main; retry only the API call.
+          for _ in 1 2 3; do
+            gh release create "$next" --verify-tag --title "$next" --notes "$notes" --generate-notes && exit 0
+            sleep 15
+          done
+          exit 1

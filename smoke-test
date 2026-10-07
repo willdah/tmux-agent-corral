@@ -254,4 +254,38 @@ h="$tmp/home2"; mkdir -p "$h/.config" "$tmp/dotfiles/tmux/agents"; ln -s "$tmp/d
 out="$(env -u TMUX HOME="$h" TMUX_TMPDIR="$tmp" "$h/.config/tmux/agents/install.sh" --no-tmux-conf 2>&1)" ||
   fail "install.sh from a clone under a linked ~/.config/tmux: $out"
 
+# The release's changelog entry: a merge body is the PR title, footers count,
+# repeats collapse, and docs-only history gives no sections.
+notes="$("$here/changelog-notes" <<'MSGS'
+Merge pull request #10 from x/pr
+
+feat: panel shows cost
+wip
+refactor: rename y
+
+BREAKING CHANGE: y is now z
+feat(panel)!: drop the old keys
+perf: faster scan
+fix(install): handle links
+fix(install): handle links
+docs: d
+MSGS
+)"
+want='### Added
+
+- panel shows cost
+
+### Changed
+
+- **Breaking:** y is now z
+- **Breaking:** drop the old keys
+- faster scan
+
+### Fixed
+
+- handle links'
+[ "$notes" = "$want" ] || fail "changelog-notes gave:
+$notes"
+[ -z "$("$here/changelog-notes" <<<'docs: d')" ] || fail "changelog-notes listed a docs commit"
+
 echo ok
