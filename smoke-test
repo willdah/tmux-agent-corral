@@ -154,6 +154,28 @@ t select-pane -t "$c" -T 'GitHub Copilot'
 TMUX_PANE=$c "$here/agent-state" done pi </dev/null
 t select-pane -t "$c" -T "π - $(basename "$(t display -p -t "$c" '#{pane_current_path}')")"
 "$here/agents" --list | grep "^$c" | grep -q 'mwork .*pi' || fail "pi row"
+# Every row lays out the same columns, whatever its harness, and the caps
+# hold on a wide panel. Widths are pinned: unset, they follow the terminal.
+L() { NO_COLOR=1 FZF_COLUMNS="$1" "$here/agents" --list; }
+wide="$(L 200)" || fail "wide list failed"
+col() { printf '%s\n' "$wide" | grep "^$1" | cut -f2 | awk -v s=" $2 " '{print index($0, s)}'; }
+[ "$(col "$c" pi)" -gt 0 ] && [ "$(col "$c" pi)" = "$(col "$a" claude)" ] ||
+  fail "agent column moved: $(col "$c" pi) vs $(col "$a" claude)"
+h="$(printf '%s\n' "$wide" | sed -n 1p | cut -f2)"
+[ "$h" = "$(printf ' %-11s  %-36s %-22s %-7s   %4s' STATE SESSION PROJECT AGENT AGE)" ] || fail "wide headings: $h"
+L 74 | sed -n 1p | grep -q AGENT && fail "agent column on a 74-column panel"
+L 75 | sed -n 1p | grep -q AGENT || fail "no agent column on a 75-column panel"
+h="$(L 60 | sed -n 1p)"
+case "$h" in *PROJECT*AGE*) ;; *) fail "dock headings lost the project: $h" ;; esac
+case "$h" in *AGENT*) fail "dock headings kept the agent over the project: $h" ;; esac
+# A group heading is as wide as the rows, not the panel.
+t set -g @agents_group on
+for W in 60 200; do
+  out="$(L "$W")"
+  h="$(printf '%s\n' "$out" | grep '^-work' | cut -f2)" r="$(printf '%s\n' "$out" | grep "^$a" | cut -f2)"
+  [ "${#h}" = "${#r}" ] || fail "heading ${#h} wide, rows ${#r}, at $W"
+done
+t set -g @agents_group off
 
 status="$(t display -p -t "$a" '#{E:status-right}')"
 case "$status" in *'▲▲'*'●'*'✓'*) ;; *) fail "status-right: $status" ;; esac

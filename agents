@@ -54,17 +54,24 @@ age() {
   fi
 }
 
-# widths <who>: from $cols, sets tw and pw (0: no project column) for a row
-# whose harness label is <who>. Too narrow for both, the project goes so the
-# age, which the sort runs on, never gets cut off.
+# widths: from $cols, sets tw, pw (0: no project column), aw (0: no agent
+# column) and rw, the width of a row, the same for every row so the columns line up. The title stops at
+# 36 so a wide popup doesn't open a gulf before the project. The agent column
+# comes only with room to spare (not in the dock), then the project goes when
+# too narrow for it, so state, title and age, which the sort runs on, always
+# show.
 widths() {
-  local rest=$(( cols - 20 - ${#1} ))
+  local fixed=21   # state, gaps and age: everything but title, project and agent
+  local rest=$(( cols - fixed - 1 ))   # less the space before the project
+  aw=7   # copilot, the longest built-in harness; a longer name gets cut
+  if [ $(( rest - aw - 1 )) -ge 40 ]; then rest=$(( rest - aw - 1 )); else aw=0; fi
   if [ "$rest" -ge 24 ]; then
-    pw=$(( rest / 3 )); [ "$pw" -gt 14 ] && pw=14
-    tw=$(( rest - pw ))
+    pw=$(( rest / 3 )); [ "$pw" -gt 22 ] && pw=22
+    tw=$(( rest - pw )); [ "$tw" -le 36 ] || tw=36
   else
     pw=0 tw=$(( rest + 1 )); [ "$tw" -ge 6 ] || tw=6
   fi
+  rw=$(( fixed + tw + (pw > 0 ? pw + 1 : 0) + (aw > 0 ? aw + 1 : 0) ))
 }
 
 # fit <var> <width> <text>: truncate with … and pad to width, counting
@@ -137,8 +144,8 @@ list() {
   # gutter and one spare for the scrollbar. fzf reports 0 during its start
   # event, so the first list measures fzf's terminal itself (its width less
   # the border's 4): not the tmux pane, which under a popup is the pane
-  # beneath it. Status, age and gaps are fixed; the title gets what's left
-  # after the project's third (up to 14 columns).
+  # beneath it. Status, agent, age and gaps are fixed; the title gets what's
+  # left after the project's third (up to 22 columns), up to 36.
   local cols="${FZF_COLUMNS:-0}" w=''
   if [ "$cols" -le 0 ]; then
     w="$( (stty size </dev/tty) 2>/dev/null || true)"
@@ -148,21 +155,25 @@ list() {
   cols=$(( cols - 5 ))
 
   # The headings: fzf pins the first line (--header-lines), so it's printed
-  # even with no rows. They line up with Claude's rows.
-  local tw pw cell where=''
-  widths ''
+  # even with no rows. They line up with the rows.
+  local tw pw aw rw cell where='' who=''
+  widths
   [ "$pw" -gt 0 ] && { fit cell "$pw" PROJECT; where=" $cell"; }
+  [ "$aw" -gt 0 ] && { fit cell "$aw" AGENT; who=" $cell"; }
   fit cell "$tw" SESSION
-  printf -- '-\t%s %-11s  %s%s %4s%s\n' "$DIM" STATE "$cell" "$where" AGE "$R"
+  printf -- '-\t%s %-11s  %s%s%s   %4s%s\n' "$DIM" STATE "$cell" "$where" "$who" AGE "$R"
 
   if [ -z "$rows" ]; then
     printf -- '-\t%s  no agents yet. Start claude, copilot or pi in any pane.%s\n' "$DIM" "$R"
     return
   fi
 
-  # A group heading: the name centred between bars, cut with … when it can't
-  # fit. The floor keeps every cut non-negative on an absurdly narrow panel.
-  local prev='' hw=$(( cols - 1 )) bars s n
+  # A group heading: the name centred between bars as wide as the rows (or
+  # the panel, if narrower), cut with … when it can't fit. The floor keeps
+  # every cut non-negative on an absurdly narrow panel.
+  local prev='' hw=$rw bars s n
+  [ "$hw" -le "$cols" ] || hw=$cols
+  hw=$(( hw - 1 ))
   [ "$hw" -ge 5 ] || hw=5
   printf -v bars '%*s' "$hw" ''; bars="${bars// /─}"
   while IFS="$US" read -r _ since id st agent proj title sess; do
@@ -179,18 +190,16 @@ list() {
       done)    glyph='✓' label='finished'  col=$GREEN ;;
       *)       glyph='○' label='idle'      col=$DIM   ;;
     esac
-    # Claude is the default harness; only another one is worth the columns.
-    [ "$agent" = claude ] || who="  $agent"
-    widths "$who"
     [ "$pw" -gt 0 ] && { fit cell "$pw" "$proj"; where=" $DIM$cell$R"; }
+    [ "$aw" -gt 0 ] && { fit cell "$aw" "$agent"; who=" $DIM$cell$R"; }
     fit cell "$tw" "$title"; age ago "$since"
-    printf '%s\t %s%s %-9s%s  %s%s%s%s %s%4s%s%s%s%s\t%s\n' \
+    printf '%s\t %s%s %-9s%s  %s%s%s%s%s   %s%4s%s\t%s\n' \
       "$id" \
       "$col" "$glyph" "$label" "$R" \
       "$TEXT" "$cell" "$R" \
       "$where" \
+      "$who" \
       "$DIM" "$ago" "$R" \
-      "$DIM" "$who" "$R" \
       "$title"
   done <<<"$rows"
 }
