@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.5.0](https://github.com/willdah/tmux-agent-corral/compare/0.4.1...0.5.0) - 2026-10-07
+
+### Added
+
+- group the panel's agents by tmux session
+
+### Fixed
+
+- address review of the session grouping
+- a panel under 44 columns lists its agents again
+
 ## [0.4.1](https://github.com/willdah/tmux-agent-corral/compare/0.4.0...0.4.1) - 2026-10-07
 
 ### Fixed
