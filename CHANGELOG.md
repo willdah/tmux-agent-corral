@@ -7,6 +7,17 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.6.0](https://github.com/willdah/tmux-agent-corral/compare/0.5.0...0.6.0) - 2026-10-07
+
+### Added
+
+- message and rename an agent inline, in the panel's input line
+- message and rename an agent inline, in the panel's own input line
+
+### Fixed
+
+- an inline message reaches only the agent it was written to
+
 ## [0.5.0](https://github.com/willdah/tmux-agent-corral/compare/0.4.1...0.5.0) - 2026-10-07
 
 ### Added
