@@ -193,7 +193,7 @@ jump() {
     go+=(\; set -p -t "$1" @agent_state idle \; wait-for -S agents)
   fi
   "${self%/*}/agents-dock" follow "$(tmux display -p -t "$1" '#{window_id}')" "${go[@]}" ||
-    tmux display-message "agents: the panel could not follow"
+    { [ $? = 2 ] && tmux display-message "agents: the panel could not follow"; }
 }
 
 # Only an agent that is actually waiting gets keystrokes; anywhere else an

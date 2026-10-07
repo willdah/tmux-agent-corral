@@ -183,22 +183,43 @@ t set-hook -gu 'session-window-changed[40]' \; set-hook -gu 'client-session-chan
 for _ in $(seq 50); do t list-clients | grep -q . && break; sleep 0.1; done
 "$here/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"
 TMUX_PANE=$c "$here/agent-state" done </dev/null
+landed() { [ "$(t display -p '#{window_id}')" = "$(wid "$1")" ] || fail "$2 did not show the agent"; }
 "$here/agents" --jump "$c" stay
+landed "$c" "jump"
 [ "$(t display -p -t "$p" '#{window_id}:#{pane_active}')" = "$w2:1" ] || fail "jump did not keep focus in the docked panel"
 [ "$(t display -p -t "$c" '#{pane_last}')" = 1 ] || fail "jump did not make the agent its window's last pane"
 [ "$(t display -p -t "$c" '#{@agent_state}')" = idle ] || fail "jump did not mark a finished agent seen"
 [ "$(geo "$w1")" = "$g1" ] || fail "work:1 layout not restored after a jump: $(geo "$w1")"
+# Beside the panel there is nothing to move, but the jump still lands.
+t switch-client -t "$w1"; TMUX_PANE=$c "$here/agent-state" done </dev/null
+"$here/agents" --jump "$c" stay
+landed "$c" "jump beside the panel"
+[ "$(t display -p -t "$p" '#{pane_active}')" = 1 ] || fail "jump beside the panel took its focus"
+[ "$(t display -p -t "$c" '#{@agent_state}')" = idle ] || fail "jump beside the panel did not mark the agent seen"
+# Into a window too narrow to share, the panel stays put.
+n="$(t new-window -d -P -F '#{pane_id}' -t work: 'sleep 600')"; t resize-window -t "$n" -x 100
+"$here/agents" --jump "$n" stay
+landed "$n" "jump into a narrow window"
+[ "$(t display -p -t "$p" '#{window_id}')" = "$w2" ] || fail "the panel followed into a narrow window"
+t kill-pane -t "$n"
 # Into a zoomed window the panel can't follow, so the agent gets focus.
 "$here/agents-dock" toggle "$w2"; "$here/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"
 z="$(t split-window -d -P -F '#{pane_id}' -t "$c" 'sleep 600')"; t resize-pane -Z -t "$c"
+t switch-client -t "$w1"; TMUX_PANE=$c "$here/agent-state" done </dev/null
 "$here/agents" --jump "$c" stay
+landed "$c" "jump into a zoomed window"
 [ "$(t display -p -t "$p" '#{window_id}')" = "$w1" ] || fail "the panel followed into a zoomed window"
 [ "$(t display -p -t "$c" '#{pane_active}#{window_zoomed_flag}')" = 11 ] || fail "jump into a zoomed window did not focus the agent"
+[ "$(t display -p -t "$c" '#{@agent_state}')" = idle ] || fail "jump into a zoomed window did not mark the agent seen"
 t kill-pane -t "$z"
 # The popup's jump focuses the agent.
 "$here/agents" --jump "$b"
 [ "$(t display -p '#{pane_id}')" = "$b" ] || fail "popup jump did not focus the agent"
-"$here/agents-dock" toggle "$w1"; kill "$cc" 2>/dev/null || true
+"$here/agents-dock" toggle "$w1"
+# With nothing docked, the docked jump still lands.
+t switch-client -t "$w1"; "$here/agents" --jump "$c" stay
+landed "$c" "jump with no panel docked"
+kill "$cc" 2>/dev/null || true
 TMUX_PANE=$c "$here/agent-state" clear </dev/null
 t source-file "$here/agents.tmux"
 
