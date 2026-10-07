@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# fake-agent <harness> <work|done|ask> <minutes ago> <task>: a staged agent
+# for the README demo. It prints a plausible transcript and reports its state
+# through the real agent-state, so the status line and panel are the real
+# thing. ask works for a few seconds after the client attaches, then waits on
+# a permission prompt until it gets Enter (the panel's y).
+set -u
+
+here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+harness="$1" mode="$2" ago="$3" task="$4"
+
+D=$'\033[2m' B=$'\033[1m' G=$'\033[32m' Y=$'\033[33m' C=$'\033[36m' R=$'\033[0m'
+
+# state <st> <minutes ago>: report st, backdated so the ages look lived in.
+state() {
+  "$here/../agent-state" "$1" "$harness"
+  tmux set -p -t "$TMUX_PANE" @agent_since $(( $(date +%s) - $2 * 60 ))
+}
+
+say() { printf '%s\n' "$@"; sleep "${pause:-0}"; }
+
+tool() { say "${G}●${R} ${B}$1${R}($2)" "  ${D}└  $3${R}" ""; }
+
+# work: an endless stream of the agent doing things.
+work() {
+  local pause=1.4
+  while :; do
+    tool Read "src/server/index.ts" "Read 214 lines"
+    say "${G}●${R} The handler retries before the lock is released; moving the retry out." ""
+    tool Edit "src/server/index.ts" "Updated with 6 additions and 3 removals"
+    tool Bash "npm run typecheck" "No errors"
+    tool Grep "\"retryAfter\"" "Found 4 files"
+  done
+}
+
+# A bash with nothing under it reads as a bare shell the panel sweeps as
+# stale; a real agent has children.
+sleep 2147483647 &
+trap 'kill $! 2>/dev/null' EXIT
+
+printf '%s> %s%s\n\n' "$C" "$task" "$R"
+case "$mode" in
+  done)
+    state running "$ago"
+    tool Edit "src/index.ts" "Updated with 12 additions and 4 removals"
+    tool Bash "npm test" "48 passed"
+    say "${G}●${R} Done: $task. All 48 tests pass."
+    state done "$ago"
+    ;;
+  work)
+    state running "$ago"
+    work
+    ;;
+  ask)
+    state running "$ago"
+    tmux wait-for corral-demo-go   # the client attached: the clock starts
+    pause=0.7
+    tool Read "test/auth.test.ts" "Read 142 lines"
+    say "${G}●${R} The token refresh races the test clock. Freezing time in the fixture." ""
+    tool Edit "test/fixtures/clock.ts" "Updated with 4 additions and 1 removal"
+    say "${G}●${R} ${B}Bash${R}(npm test -- auth)"
+    say "${Y}╭───────────────────────────────────────────╮${R}" \
+        "${Y}│${R} ${B}Bash command${R}                              ${Y}│${R}" \
+        "${Y}│${R}   npm test -- auth                        ${Y}│${R}" \
+        "${Y}│${R}                                           ${Y}│${R}" \
+        "${Y}│${R} Do you want to proceed?                   ${Y}│${R}" \
+        "${Y}│${R} ${C}❯ 1. Yes${R}                                  ${Y}│${R}" \
+        "${Y}│${R}   2. No, and tell Claude what to do       ${Y}│${R}" \
+        "${Y}╰───────────────────────────────────────────╯${R}"
+    state input 0
+    IFS= read -rs _
+    printf '\n'
+    state running 0
+    say "  ${D}└  Running…${R}" ""
+    tool Bash "npm test -- auth" "12 passed"
+    work
+    ;;
+esac
+while :; do sleep 3600; done
