@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# demo/setup: the staged scene for the README GIF (demo.tape runs it). Starts
+# a throwaway tmux server with five fake agents across three sessions and
+# attaches to it; on detach it tears everything down. Nothing touches your own
+# tmux, HOME or agents: HOME is a temp dir whose ~/.config/tmux/agents links
+# to this checkout.
+set -euo pipefail
+
+here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tmp=/tmp/corral-demo   # short: the panel's preview label shows the path
+sock=corral-demo
+t() { tmux -L "$sock" -f "$here/tmux.conf" "$@"; }
+trap 't kill-server 2>/dev/null || true; rm -rf "$tmp"' EXIT
+t kill-server 2>/dev/null || true
+rm -rf "$tmp"
+
+mkdir -p "$tmp/.config/tmux"
+ln -s "${here%/*}" "$tmp/.config/tmux/agents"
+for p in billing handbook storefront; do git init -q "$tmp/code/$p"; done
+mkdir -p "$tmp/code/billing/services/ratelimit" "$tmp/code/handbook/guides"
+
+export HOME="$tmp" PS1='$ '
+unset TMUX FZF_DEFAULT_OPTS FZF_DEFAULT_OPTS_FILE
+cd "$tmp"
+
+# agent <session> <dir> <harness> <mode> <minutes ago> <task> [title]
+agent() {
+  local where=(new-window -t "$1:")
+  t has-session -t "$1" 2>/dev/null || where=(new-session -d -s "$1" -x 120 -y 34)
+  t "${where[@]}" -n "$3" -c "$tmp/code/$2" "$here/fake-agent" "$3" "$4" "$5" "$6"
+  [ -z "${7:-}" ] || t select-pane -t "$1:" -T "$7"
+}
+agent api   billing                    claude  ask  4  "fix the flaky auth tests" "✳ fix flaky auth tests"
+agent api   billing/services/ratelimit copilot done 6  "add rate limiting to /charge"
+agent docs  handbook/guides            pi      work 1  "rewrite the onboarding guide"
+agent web   storefront                 claude  done 12 "add a dark mode toggle" "✳ dark mode toggle"
+agent web   storefront                 claude  work 3  "migrate the build to vite" "✳ migrate to vite"
+t select-window -t api:1
+sleep 1   # let every agent report in before the first frame
+
+t attach -t web
