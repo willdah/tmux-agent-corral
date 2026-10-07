@@ -65,11 +65,23 @@ case "${1:-}" in
     # Joining unzooms a zoomed window and fails in a narrow one: leave the
     # panel where it is and let it catch up on the next switch.
     [ "$(tmux display -p -t "$w" '#{window_zoomed_flag}')" = 1 ] && { chain "$@"; exit 0; }
-    [ "$(tmux display -p -t "$w" '#{window_width}')" -ge $(( WIDTH * 2 )) ] || { chain "$@"; exit 0; }
+    # A window the client has not shown yet still has its old size (80
+    # columns in a session nobody has attached to) and only takes the
+    # client's after this command, which would scale the joined panel with
+    # it. So size it now, and clear the manual flag that leaves behind; a
+    # window sized by hand keeps its own.
+    size=()
+    if [ "$(tmux show -wv -t "$w" window-size 2>/dev/null)" != manual ]; then
+      width="$(tmux display -p -t "$w" '#{client_width}')"
+      [ -z "$width" ] || size=(resize-window -t "$w" -x "$width" \;)
+    fi
+    [ -n "${width:-}" ] || width="$(tmux display -p -t "$w" '#{window_width}')"
+    [ "$width" -ge $(( WIDTH * 2 )) ] || { chain "$@"; exit 0; }
     tmux set -w -t "$w" @agents_bare "$(tmux display -p -t "$w" '#{window_layout}')"
     first="$(tmux list-panes -t "$w" -F '#{pane_id}' | head -1)"
-    join=(join-pane -d -fhb -l "$WIDTH" -s "$p" -t "$first")
+    join=(${size[@]+"${size[@]}"} join-pane -d -fhb -l "$WIDTH" -s "$p" -t "$first")
     [ $# -eq 0 ] || join+=(\; "$@")
+    [ ${#size[@]} -eq 0 ] || join+=(\; set -w -t "$w" -u window-size)
     status=0; tmux "${join[@]}" || status=$?
     # One exit status covers the whole call. A failed join skips the rest, so
     # run that on its own; if only a later command failed, the panel is in.
