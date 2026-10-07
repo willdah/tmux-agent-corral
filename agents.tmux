@@ -33,6 +33,10 @@ set -g @agent_c_done    108   # ✓ finished, not yet looked at
 set -g @agent_c_text    250   # panel greys: raise to ~236/240 on a light theme
 set -g @agent_c_dim     247
 
+# The panel groups its rows under each tmux session's name when this is on;
+# g in the panel toggles it.
+set -g @agents_group off
+
 # Formats for your status line and tabs. Idle agents stay quiet.
 #   @agents_status  every agent in every session, waiting first: ▲▲●✓
 #   @agent_tab      the marks of one window's panes, with a leading space

@@ -56,6 +56,19 @@ TMUX_PANE=$a "$here/agent-state" running </dev/null
 t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y   # the stale sweep drops these too
 order="$("$here/agents" --list | tail -n +2 | cut -f1 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
+# Grouped: a heading per session, sessions by name, each in the usual order;
+# an untitled row names its directory, not the session its heading shows.
+t set -g @agents_group on
+order="$("$here/agents" --list | tail -n +2 | cut -f1 | tr '\n' ' ')"
+[ "$order" = "-side $d -work $b $c $a " ] || fail "grouped order: $order"
+h="$(NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list | grep '^-work' | cut -f2)"
+l="${h%% work *}" r="${h##* work }"
+[ "${l# }" != "${l//─/}" ] && [ "${r//─/}" = '' ] && [ $(( ${#r} - ${#l} + 1 )) -le 1 ] && [ $(( ${#r} - ${#l} + 1 )) -ge 0 ] ||
+  fail "group heading not centred: $h"
+NO_COLOR=1 "$here/agents" --list | grep "^$a" | grep -q 'working    smokeproj' || fail "grouped untitled row"
+h="$(NO_COLOR=1 FZF_COLUMNS=12 "$here/agents" --list | grep '^-work' | cut -f2)"
+[ "${#h}" -le 7 ] || fail "group heading wider than the panel: $h"
+t set -g @agents_group off
 t select-pane -t "$b" -T '✳ Fix login'
 "$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "title not shown"
 "$here/agents" --list | grep "^$a" | grep -q 'mwork ' || fail "untitled row lost its place"
