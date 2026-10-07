@@ -44,14 +44,7 @@ jobs:
           # released is listed. The commit and its tag push to main together:
           # if main moved meanwhile neither lands, and the run for that newer
           # push releases everything instead.
-          section() {
-            local lines
-            lines="$(grep -E "$2" <<<"$msgs" | sed -E 's/^([a-z]+(\([^)]+\))?!|BREAKING[ -]CHANGE): /- **Breaking:** /; s/^[a-z]+(\([^)]+\))?: /- /' | awk '!seen[$0]++')"
-            if [ -n "$lines" ]; then printf '### %s\n\n%s\n\n' "$1" "$lines"; fi
-          }
-          notes="$(section Added '^feat(\([^)]+\))?: '
-                   section Changed '^[a-z]+(\([^)]+\))?!: |^BREAKING[ -]CHANGE: |^perf(\([^)]+\))?: '
-                   section Fixed '^fix(\([^)]+\))?: ')"
+          notes="$(./changelog-notes <<<"$msgs")"
           url="https://github.com/$GITHUB_REPOSITORY"
           link="${last:+$url/compare/$last...$next}"
           entry="$(printf '%s\n\n' "## [$next](${link:-$url/releases/tag/$next}) - $(date -u +%F)" ${notes:+"$notes"})"

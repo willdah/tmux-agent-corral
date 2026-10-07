@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# changelog-notes: reads commit messages on stdin and prints a changelog entry's
+# sections from their conventional-commit lines. release.yml feeds it the same
+# messages it picks the version bump from.
+set -euo pipefail
+
+msgs="$(cat)"
+section() {
+  local lines
+  lines="$(grep -E "$2" <<<"$msgs" |
+    sed -E 's/^([a-z]+(\([^)]+\))?!|BREAKING[ -]CHANGE): /- **Breaking:** /; s/^[a-z]+(\([^)]+\))?: /- /' |
+    awk '!seen[$0]++')" || true
+  if [ -n "$lines" ]; then printf '### %s\n\n%s\n\n' "$1" "$lines"; fi
+}
+section Added '^feat(\([^)]+\))?: '
+section Changed '^[a-z]+(\([^)]+\))?!: |^BREAKING[ -]CHANGE: |^perf(\([^)]+\))?: '
+section Fixed '^fix(\([^)]+\))?: '
