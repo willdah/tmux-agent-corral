@@ -122,6 +122,8 @@ TMUX_PANE=$c "$here/agent-state" clear </dev/null
 # they never fire, so the test calls it the same way.
 t show-hooks -g session-window-changed | grep -q agents-dock || fail "follow hook missing"
 t show-hooks -g client-session-changed | grep -q agents-dock || fail "session hook missing"
+t show-hooks -g 'pane-focus-in[41]' | grep -q 'agents --ping' || fail "focus-in title hook missing"
+t show-hooks -g 'pane-focus-out[40]' | grep -q 'agents --ping' || fail "focus-out title hook missing"
 wid() { t display -p -t "$1" '#{window_id}'; }
 geo() { t list-panes -t "$1" -F '#{pane_id}@#{pane_left}:#{pane_width}' | sort | tr '\n' ' '; }
 w1=$(wid work:1) w2=$(wid work:2) s1=$(wid side:1)
@@ -232,6 +234,9 @@ grep -q sessionStart "$here/copilot-hooks.json" && fail "copilot sessionStart ho
 # No agents left: the panel says so instead of going blank.
 for p in $a $b $d; do TMUX_PANE=$p "$here/agent-state" clear </dev/null; done
 "$here/agents" --list | grep -q 'no agents yet' || fail "empty state"
+# fzf pins the first line, so the headings must still lead or the empty row
+# becomes the header.
+[ "$("$here/agents" --list | sed -n 1p | grep -c SESSION)$("$here/agents" --list | wc -l | tr -d ' ')" = 12 ] || fail "empty state lost its headings"
 NO_COLOR=1 "$here/agents" --list | grep -q $'\033' && fail "NO_COLOR left colour codes in the empty state"
 
 # install.sh, in a throwaway home with no tmux server to reload: the tmux.conf

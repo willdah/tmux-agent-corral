@@ -49,6 +49,19 @@ age() {
   fi
 }
 
+# widths <who>: from $cols, sets tw and pw (0: no project column) for a row
+# whose harness label is <who>. Too narrow for both, the project goes so the
+# age, which the sort runs on, never gets cut off.
+widths() {
+  local rest=$(( cols - 20 - ${#1} ))
+  if [ "$rest" -ge 24 ]; then
+    pw=$(( rest / 3 )); [ "$pw" -gt 14 ] && pw=14
+    tw=$(( rest - pw ))
+  else
+    pw=0 tw=$(( rest + 1 )); [ "$tw" -lt 6 ] && tw=6
+  fi
+}
+
 # fit <var> <width> <text>: truncate with … and pad to width, counting
 # characters, not bytes, so titles with › or emoji keep the columns aligned.
 fit() {
@@ -125,19 +138,6 @@ list() {
   fi
   cols=$(( cols - 5 ))
 
-  # widths <who>: sets tw and pw (0: no project column) for a row whose
-  # harness label is <who>. Too narrow for both, the project goes so the age,
-  # which the sort runs on, never gets cut off.
-  widths() {
-    local rest=$(( cols - 20 - ${#1} ))
-    if [ "$rest" -ge 24 ]; then
-      pw=$(( rest / 3 )); [ "$pw" -gt 14 ] && pw=14
-      tw=$(( rest - pw ))
-    else
-      pw=0 tw=$(( rest + 1 )); [ "$tw" -lt 6 ] && tw=6
-    fi
-  }
-
   # The headings: fzf pins the first line (--header-lines), so it's printed
   # even with no rows. They line up with Claude's rows.
   local tw pw cell where=''
@@ -152,8 +152,7 @@ list() {
   fi
 
   while IFS="$US" read -r _ since id st agent proj title; do
-    local glyph label col who='' ago
-    where=''
+    local glyph label col who='' ago where=''
     case "$st" in
       input)   glyph='▲' label='needs you' col=$AMBER ;;
       running) glyph='●' label='working'   col=$BLUE  ;;
