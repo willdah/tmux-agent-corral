@@ -95,8 +95,8 @@ Inside the panel:
 |-----|--------|
 | `↵` | jump to the agent (the popup closes; the docked panel keeps focus) |
 | `y` | approve: sends Enter, and only to an agent that is waiting |
-| `m` | type a message to it |
-| `n` | give it a name (empty resets to the agent's own title) |
+| `m` | type a message to it, right in the panel (↵ sends, esc cancels) |
+| `n` | give it a name, starting from the one it shows (empty resets to the agent's own title) |
 | `x` | interrupt: sends Escape (C-c to Copilot), and only to an agent that is working |
 | `g` | group by tmux session (sessions in name order); not in the docked panel's key hints, but works there |
 | `p` | toggle the live preview |

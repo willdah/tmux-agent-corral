@@ -11,7 +11,7 @@
 #
 #   agents            popup panel: Enter jumps to the agent and closes
 #   agents --watch    pinned panel: stays open, Enter shows the agent and keeps focus, p toggles preview
-#   agents --list     the column headings, then the rows, tab-separated (pane id, display)
+#   agents --list     the column headings, then the rows, tab-separated (pane id, display, full name)
 #
 # Keys: ↵ jump · y approve · m message · n rename · x interrupt · g group · r refresh · q close
 #
@@ -184,13 +184,14 @@ list() {
     widths "$who"
     [ "$pw" -gt 0 ] && { fit cell "$pw" "$proj"; where=" $DIM$cell$R"; }
     fit cell "$tw" "$title"; age ago "$since"
-    printf '%s\t %s%s %-9s%s  %s%s%s%s %s%4s%s%s%s%s\n' \
+    printf '%s\t %s%s %-9s%s  %s%s%s%s %s%4s%s%s%s%s\t%s\n' \
       "$id" \
       "$col" "$glyph" "$label" "$R" \
       "$TEXT" "$cell" "$R" \
       "$where" \
       "$DIM" "$ago" "$R" \
-      "$DIM" "$who" "$R"
+      "$DIM" "$who" "$R" \
+      "$title"
   done <<<"$rows"
 }
 
@@ -241,25 +242,56 @@ interrupt() {
   fi
 }
 
+# message PANE TEXT: type TEXT into the agent and press Enter.
 message() {
   is_pane "${1:-}" || return 0
   local msg
-  printf '\n  %s›%s message for %s: ' "$BLUE" "$R" "$(tmux display -p -t "$1" '#{session_name} › #{b:pane_current_path}')"
-  IFS= read -re msg || return 0
+  msg="${2:-}"
   [ -n "$msg" ] || return 0
   tmux send-keys -t "$1" -l -- "$msg"
   tmux send-keys -t "$1" Enter
 }
 
-# The name shows in place of the agent's own title until the pane closes or
-# the agent ends; an empty name hands the row back to that title.
+# rename PANE [NAME [SHOWN]]: the name shows in place of the agent's own title
+# until the pane closes or the agent ends; an empty name hands the row back to
+# that title. NAME equal to SHOWN (the pre-filled field, untouched) changes
+# nothing, so a stray ↵ doesn't freeze the title as a name.
 rename() {
   is_pane "${1:-}" || return 0
-  local name
-  printf '\n  %s›%s name for %s (empty resets): ' "$BLUE" "$R" "$(tmux display -p -t "$1" '#{session_name} › #{b:pane_current_path}')"
-  IFS= read -re name || return 0
+  local name="${2:-}"
+  [ $# -ge 3 ] && [ "$name" = "$3" ] && return 0
   if [ -n "$name" ]; then tmux set -p -t "$1" @agent_name "$name"
   else tmux set -pu -t "$1" @agent_name 2>/dev/null || true
+  fi
+}
+
+# m and n turn fzf's own input line into
+# the field, so the panel never leaves the screen. The prompt says which field
+# is open and for whom (key message|rename SHOWN prints it, the name cut to
+# fit a docked panel); key KEY SHOWN prints what ↵ or esc does there, ending on the
+# footer: what was done, put back by --key restore 3s later, or the keys.
+# ($AGENTS_* set by panel.) Closing the field is chained after it in the bind:
+# fzf drops a clear-query that comes out of a transform, and the query would
+# go on filtering the list.
+key() {
+  local did='' undo="(sleep 3; curl -fs -XPOST localhost:\$FZF_PORT -d 'transform:$self --key restore') >/dev/null 2>&1 &"
+  case "$1:$FZF_PROMPT" in
+    message:*|rename:*)   local n="${2:-}"; [ "${#n}" -le 24 ] || n="${n:0:23}…"
+                          if [ "$1" = message ]; then printf 'message to %s › ' "$n"; else printf 'rename %s › ' "$n"; fi
+                          return ;;
+    'enter:message to '*) [ -n "$FZF_QUERY" ] && did="sent to $TEXT${2:-}" &&
+                            printf 'execute-silent(%s --message {1} {q})+' "$self" ;;
+    'enter:rename '*)     if [ "$FZF_QUERY" = "${2:-}" ]; then :
+                          elif [ -n "$FZF_QUERY" ]; then did="renamed to $TEXT$FZF_QUERY"
+                          else did='name reset'; fi
+                          [ -n "$did" ] && printf 'execute-silent(%s --rename {1} {q} {3})+' "$self" ;;
+    enter:*)              printf '%s' "$AGENTS_ENTER"; return ;;
+    restore:'> ')         ;;
+    restore:*)            return ;;
+    esc:'> ')             printf abort; return ;;
+  esac
+  if [ -n "$did" ]; then printf 'execute-silent[%s]' "$undo"; printf '+change-footer:%s' "${GREEN}✓${R} $did${R}"
+  else printf 'change-footer:%s' "$AGENTS_FOOTER"
   fi
 }
 
@@ -308,6 +340,15 @@ panel() {
   local reload="curl -fs -XPOST localhost:\$FZF_PORT -d 'reload-sync($self --list)'"
   local tick="(while sleep 10 && $reload; do :; done) >/dev/null 2>&1 & (while tmux wait-for agents && $reload; do :; done) >/dev/null 2>&1 &"
 
+  # While a field is open the action letters and ↑↓ type or stay put, so the
+  # row being written to can't change underneath.
+  export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }"
+  local lock='y,x,m,n,r,g,p,j,k,q,up,down'
+  local open="unbind($lock)+disable-search+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
+  local close="+clear-query+enable-search+hide-input+change-prompt(> )+rebind($lock)+reload-sync($self --list)"
+  local m="$open+change-query()+transform-prompt($self --key message {3})"
+  local n="$open+transform-query(printf %s {3})+transform-prompt($self --key rename {3})"
+
   local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
 
   # The first list loads through reload so it, too, sees $FZF_COLUMNS.
@@ -326,15 +367,17 @@ panel() {
     --color='fg:250,bg:-1,fg+:255,bg+:236,hl:110,hl+:110' \
     --color='border:238,label:110,preview-border:238,preview-label:247,footer-border:238' \
     --color='pointer:110,marker:110,gutter:-1,info:247,header:250' \
-    --bind="enter:$enter" \
+    --color='prompt:110,query:255' \
+    --bind="enter:transform($self --key enter {3})$close" \
+    --bind="esc:transform($self --key esc)$close" \
     --bind="y:execute-silent($self --approve {1})+reload-sync($self --list)" \
     --bind="x:execute-silent($self --interrupt {1})" \
-    --bind="m:execute($self --message {1})+reload-sync($self --list)" \
-    --bind="n:execute($self --rename {1})+reload-sync($self --list)" \
+    --bind="m:$m" \
+    --bind="n:$n" \
     --bind="r:reload-sync($self --list)" \
     --bind="g:execute-silent($self --group)+reload-sync($self --list)" \
     --bind="p:toggle-preview+transform-preview-label:$label" \
-    --bind='j:down,k:up,q:abort,esc:abort' \
+    --bind='j:down,k:up,q:abort' \
     >/dev/null || true
   # Wake this panel's waiter so it sees fzf gone and exits now, not on the
   # next state change; any other open panel just reloads once.
@@ -350,8 +393,9 @@ case "${1:-}" in
   --jump)      jump "${2:-}" "${3:-}" ;;
   --approve)   approve "${2:-}" ;;
   --interrupt) interrupt "${2:-}" ;;
-  --message)   message "${2:-}" ;;
-  --rename)    rename "${2:-}" ;;
+  --message)   shift; message "$@" ;;
+  --rename)    shift; rename "$@" ;;
+  --key)       shift; key "$@" ;;
   # g: flip grouping, and wake every open panel so popup and dock agree.
   --group)     tmux set -gF @agents_group '#{?#{==:#{@agents_group},on},off,on}' \; wait-for -S agents ;;
   *)           die "usage: $(basename "$0") [--watch|--list]" ;;

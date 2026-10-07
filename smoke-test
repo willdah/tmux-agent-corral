@@ -115,10 +115,16 @@ while IFS=$'\t' read -r _ row _; do
   case "$row" in *smokeproj*|*PROJECT*) fail "narrow row kept the project: $row" ;; esac
   [ "${#row}" -le 35 ] || fail "row wider than a 42-column panel: $row"
 done < <(FZF_COLUMNS=40 "$here/agents" --list)
-printf 'Login → OAuth\n' | "$here/agents" --rename "$b" >/dev/null
+"$here/agents" --rename "$b" 'Login → OAuth'
 "$here/agents" --list | grep "^$b" | grep -q 'mLogin → OAuth ' || fail "rename not shown"
-printf '\n' | "$here/agents" --rename "$b" >/dev/null
+"$here/agents" --rename "$b"
 "$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "empty rename did not reset"
+# The panel pre-fills n from the row's full name, the list's hidden third
+# field; ↵ on it untouched must not freeze the title as a name.
+shown="$("$here/agents" --list | grep "^$b" | cut -f3)"; [ "$shown" = "Fix login" ] || fail "hidden name field: $shown"
+"$here/agents" --rename "$b" "$shown" "$shown"
+[ -z "$(t show -pv -t "$b" @agent_name 2>/dev/null)" ] || fail "untouched rename froze the title"
+FZF_PROMPT='> ' "$here/agents" --key message "$(printf '%030d' 0)" | grep -q '^message to 0\{23\}… › $' || fail "long name not cut in the prompt"
 [ -z "$(t display -p -t "$shell" '#{@agent_state}#{@agent_dir}#{@agent_project}')" ] || fail "stale shell pane kept its state"
 # Other harnesses: the name shows, the title they give themselves doesn't.
 TMUX_PANE=$c "$here/agent-state" running copilot </dev/null
