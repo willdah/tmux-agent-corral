@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.4.1](https://github.com/willdah/tmux-agent-corral/compare/0.4.0...0.4.1) - 2026-10-07
+
+### Fixed
+
+- a docked jump no longer flickers
+- a docked jump survives a failing step and every fallback is tested
+
 ## [0.4.0](https://github.com/willdah/tmux-agent-corral/compare/0.3.3...0.4.0) - 2026-10-07
 
 ### Added
