@@ -158,6 +158,9 @@ t select-pane -t "$c" -T "π - $(basename "$(t display -p -t "$c" '#{pane_curren
 w() { NO_COLOR=1 "$here/agents" --list | grep "^$1" | cut -f2 | awk '{print index($0, " pi ") + index($0, " claude ")}'; }
 [ "$(w "$c")" = "$(w "$a")" ] || fail "agent column moved: $(w "$c") vs $(w "$a")"
 NO_COLOR=1 "$here/agents" --list | sed -n 1p | grep -q ' AGENT ' || fail "no AGENT heading"
+h="$(NO_COLOR=1 FZF_COLUMNS=60 "$here/agents" --list | sed -n 1p)"
+case "$h" in *PROJECT*AGE*) ;; *) fail "dock headings lost the project: $h" ;; esac
+case "$h" in *AGENT*) fail "dock headings kept the agent over the project: $h" ;; esac
 NO_COLOR=1 FZF_COLUMNS=200 "$here/agents" --list | sed -n 1p | grep -q "SESSION $(printf '%40s' '')" && fail "wide panel stretched the session column"
 
 status="$(t display -p -t "$a" '#{E:status-right}')"
