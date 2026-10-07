@@ -10,12 +10,12 @@
 #
 #   agents            popup panel: Enter jumps to the agent and closes
 #   agents --watch    pinned panel: stays open, Enter shows the agent and keeps focus, p toggles preview
-#   agents --list     the rows only, tab-separated (pane id, display)
+#   agents --list     the column headings, then the rows, tab-separated (pane id, display)
 #
 # Keys: ↵ jump · y approve · m message · n rename · x interrupt · r refresh · q close
 #
-# Columns fit the panel's width (fzf's $FZF_COLUMNS) and the focused row's full
-# name and project show in the header. NO_COLOR turns the colours off.
+# Columns fit the panel's width (fzf's $FZF_COLUMNS), headings included.
+# NO_COLOR turns the colours off.
 set -euo pipefail
 
 self="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
@@ -125,13 +125,35 @@ list() {
   fi
   cols=$(( cols - 5 ))
 
+  # widths <who>: sets tw and pw (0: no project column) for a row whose
+  # harness label is <who>. Too narrow for both, the project goes so the age,
+  # which the sort runs on, never gets cut off.
+  widths() {
+    local rest=$(( cols - 20 - ${#1} ))
+    if [ "$rest" -ge 24 ]; then
+      pw=$(( rest / 3 )); [ "$pw" -gt 14 ] && pw=14
+      tw=$(( rest - pw ))
+    else
+      pw=0 tw=$(( rest + 1 )); [ "$tw" -lt 6 ] && tw=6
+    fi
+  }
+
+  # The headings: fzf pins the first line (--header-lines), so it's printed
+  # even with no rows. They line up with Claude's rows.
+  local tw pw cell where=''
+  widths ''
+  [ "$pw" -gt 0 ] && { fit cell "$pw" PROJECT; where=" $cell"; }
+  fit cell "$tw" SESSION
+  printf -- '-\t%s %-11s  %s%s %4s%s\n' "$DIM" STATE "$cell" "$where" AGE "$R"
+
   if [ -z "$rows" ]; then
     printf -- '-\t%s  no agents yet. Start claude, copilot or pi in any pane.%s\n' "$DIM" "$R"
     return
   fi
 
   while IFS="$US" read -r _ since id st agent proj title; do
-    local glyph label col who='' rest pw tw where='' cell ago
+    local glyph label col who='' ago
+    where=''
     case "$st" in
       input)   glyph='▲' label='needs you' col=$AMBER ;;
       running) glyph='●' label='working'   col=$BLUE  ;;
@@ -140,25 +162,16 @@ list() {
     esac
     # Claude is the default harness; only another one is worth the columns.
     [ "$agent" = claude ] || who="  $agent"
-    rest=$(( cols - 20 - ${#who} ))
-    # Too narrow for both: the project goes (the header still names it) so
-    # the age, which the sort runs on, never gets cut off.
-    if [ "$rest" -ge 24 ]; then
-      pw=$(( rest / 3 )); [ "$pw" -gt 14 ] && pw=14
-      tw=$(( rest - pw ))
-      fit cell "$pw" "$proj"; where=" $DIM$cell$R"
-    else
-      tw=$(( rest + 1 )); [ "$tw" -lt 6 ] && tw=6
-    fi
+    widths "$who"
+    [ "$pw" -gt 0 ] && { fit cell "$pw" "$proj"; where=" $DIM$cell$R"; }
     fit cell "$tw" "$title"; age ago "$since"
-    printf '%s\t %s%s %-9s%s  %s%s%s%s %s%4s%s%s%s%s\t%s · %s\n' \
+    printf '%s\t %s%s %-9s%s  %s%s%s%s %s%4s%s%s%s%s\n' \
       "$id" \
       "$col" "$glyph" "$label" "$R" \
       "$TEXT" "$cell" "$R" \
       "$where" \
       "$DIM" "$ago" "$R" \
-      "$DIM" "$who" "$R" \
-      "$title" "$proj"
+      "$DIM" "$who" "$R"
   done <<<"$rows"
 }
 
@@ -262,16 +275,16 @@ panel() {
   # The first list loads through reload so it, too, sees $FZF_COLUMNS.
   fzf </dev/null \
     --ansi --no-input --no-sort --layout=reverse --cycle \
-    --delimiter=$'\t' --with-nth=2 --id-nth=1 --track \
+    --delimiter=$'\t' --with-nth=2 --id-nth=1 --track --header-lines=1 \
     --listen --bind "start:reload-sync($self --list)+execute-silent:$tick" \
     --bind "resize:reload-sync($self --list)" \
-    --border=rounded --border-label=' agents ' --border-label-pos=3 \
+    --border=rounded --border-label=' agent-corral ' --border-label-pos=3 \
     --info=hidden --pointer='▌' --gutter=' ' \
     --footer="${footer%  }" \
     --footer-border=line \
     --preview='[ {1} != - ] && tmux capture-pane -pe -J -t {1} -S -80 | awk "{l[NR]=\$0} NF{n=NR} END{for(i=1;i<=n;i++)print l[i]}"' \
     --preview-window="$preview" \
-    --bind="focus:transform-header(printf '%s' {3})+transform-preview-label:$label" \
+    --bind="focus:transform-preview-label:$label" \
     --color='fg:250,bg:-1,fg+:255,bg+:236,hl:110,hl+:110' \
     --color='border:238,label:110,preview-border:238,preview-label:247,footer-border:238' \
     --color='pointer:110,marker:110,gutter:-1,info:247,header:250' \

@@ -54,7 +54,7 @@ kill -0 "$w" 2>/dev/null && { kill "$w"; fail "agent-state did not signal the ag
 TMUX_PANE=$a "$here/agent-state" running </dev/null
 
 t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y   # the stale sweep drops these too
-order="$("$here/agents" --list | cut -f1 | tr '\n' ' ')"
+order="$("$here/agents" --list | tail -n +2 | cut -f1 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
 t select-pane -t "$b" -T '✳ Fix login'
 "$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "title not shown"
@@ -82,14 +82,15 @@ printf '%s\n' "$plain" | grep "^$b" | grep -q '▲ needs you  Fix login' || fail
 t set -g @agent_c_input 196
 "$here/agents" --list | grep "^$b" | grep -q $'\033\\[38;5;196m' || fail "@agent_c_input not used"
 t set -g @agent_c_input 214
-[ "$("$here/agents" --list | grep "^$b" | cut -f3)" = 'Fix login · smokeproj' ] || fail "header field"
+h="$(NO_COLOR=1 "$here/agents" --list | sed -n 1p)"; case "$h" in "-	 STATE"*" SESSION "*" PROJECT "*" AGE") ;; *) fail "column headings: $h" ;; esac
+NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list | sed -n 1p | grep -q PROJECT && fail "narrow headings kept the project"
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
   [ "${#row}" -le 57 ] || fail "row wider than the 64-column dock: $row"
 done < <(FZF_COLUMNS=60 "$here/agents" --list)
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
-  case "$row" in *smokeproj*) fail "narrow row kept the project: $row" ;; esac
+  case "$row" in *smokeproj*|*PROJECT*) fail "narrow row kept the project: $row" ;; esac
   [ "${#row}" -le 35 ] || fail "row wider than a 42-column panel: $row"
 done < <(FZF_COLUMNS=40 "$here/agents" --list)
 printf 'Login → OAuth\n' | "$here/agents" --rename "$b" >/dev/null
