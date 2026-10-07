@@ -21,6 +21,10 @@ set-hook -g client-session-changed[40] 'if -F "#{@agents_dock}" "run-shell \"~/.
 set -g focus-events on
 set-hook -g pane-focus-in[40] 'if -F "#{==:#{@agent_state},done}" "set -p @agent_state idle ; wait-for -S agents"'
 
+# The docked panel's title shows whether it has focus; these tell it to look.
+set-hook -g pane-focus-in[41]  'if -F "#{@agents_dock}" "run-shell -b \"~/.config/tmux/agents/agents --ping\""'
+set-hook -g pane-focus-out[40] 'if -F "#{@agents_dock}" "run-shell -b \"~/.config/tmux/agents/agents --ping\""'
+
 # State colours (256-colour indexes), shared by the status formats and the
 # panel. Override any of them after sourcing this file.
 set -g @agent_c_input   214   # ▲ needs you

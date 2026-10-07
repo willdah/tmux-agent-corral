@@ -160,6 +160,17 @@ mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
 "$here/agents-dock" toggle "$w1"; sleep 0.5
 gone undocking
 
+# The docked panel's title is marked while it has focus and plain once it
+# goes. The focus hooks need a client, so ping by hand.
+t select-window -t "$w1"; "$here/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"; sleep 1.5
+title() { t capture-pane -p -t "$p" | sed -n 1p; }
+title | grep -q '\[ agent-corral \]' || fail "focused panel's title not marked: $(title)"
+t last-pane -t "$w1"; "$here/agents" --ping; sleep 0.5
+title | grep -q '─  agent-corral  ─' || fail "unfocused panel's title still marked: $(title)"
+t select-pane -t "$p"; "$here/agents" --ping; sleep 0.5
+title | grep -q '\[ agent-corral \]' || fail "refocused panel's title not marked: $(title)"
+"$here/agents-dock" toggle "$w1"; sleep 0.5
+
 # Enter in the docked panel: the panel follows to the agent's window and keeps
 # focus, the agent is that window's last pane, and a finished one reads seen.
 # switch-client needs a client, so attach a control-mode one. Its hooks would

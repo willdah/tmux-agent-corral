@@ -246,11 +246,32 @@ rename() {
   fi
 }
 
+# The docked panel's title shows whether it has focus: bold blue in brackets,
+# like a lit tab, dim without, spaced so the name never moves. The focus hooks
+# in agents.tmux ping the panel (--ping), which redraws the label from the
+# real focus (--label), so a lost ping or a quick out-and-back (↵ in the dock)
+# leaves it right.
+label() {
+  if [ "$(tmux display -p -t "$TMUX_PANE" '#{&&:#{pane_active},#{window_active}}')" = 1 ]; then
+    printf '%s%s[ agent-corral ]%s' "$B" "$BLUE" "$R"
+  else
+    printf '%s  agent-corral  %s' "$DIM" "$R"
+  fi
+}
+
+ping() {
+  local dock port
+  dock="$(tmux show -gv @agents_dock 2>/dev/null)" || return 0
+  port="$(tmux display -p -t "$dock" '#{@agents_port}' 2>/dev/null)"
+  [ -n "$port" ] && curl -fs -XPOST "localhost:$port" -d "transform-border-label($self --label)" >/dev/null 2>&1 || true
+}
+
 panel() {
   command -v fzf >/dev/null 2>&1 || die "fzf not found (brew install fzf)"
-  local watch="${1:-}" enter preview keys
+  local watch="${1:-}" enter preview keys start=''
   # The docked panel is narrow, so its key hints are shorter.
   if [ "$watch" = watch ]; then
+    start="execute-silent(tmux set -p -t \$TMUX_PANE @agents_port \$FZF_PORT)+transform-border-label($self --label)+"
     enter="execute-silent($self --jump {1} stay)"
     preview='down,60%,follow,border-top,hidden'
     keys='↵ jump|y approve|m msg|n name|x stop|p peek|q close'
@@ -276,7 +297,7 @@ panel() {
   fzf </dev/null \
     --ansi --no-input --no-sort --layout=reverse --cycle \
     --delimiter=$'\t' --with-nth=2 --id-nth=1 --track --header-lines=1 \
-    --listen --bind "start:reload-sync($self --list)+execute-silent:$tick" \
+    --listen --bind "start:${start}reload-sync($self --list)+execute-silent:$tick" \
     --bind "resize:reload-sync($self --list)" \
     --border=rounded --border-label=' agent-corral ' --border-label-pos=3 \
     --info=hidden --pointer='▌' --gutter=' ' \
@@ -306,6 +327,8 @@ case "${1:-}" in
   '')          panel ;;
   --watch)     panel watch ;;
   --list)      list ;;
+  --label)     label ;;
+  --ping)      ping ;;
   --jump)      jump "${2:-}" "${3:-}" ;;
   --approve)   approve "${2:-}" ;;
   --interrupt) interrupt "${2:-}" ;;
