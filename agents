@@ -6,7 +6,8 @@
 # protocol. Rows that need you sort first (waiting on you, then finished,
 # then idle; working last), oldest wait at the top. A row shows the session's
 # name (one you gave it with n, else the pane title Claude Code sets, else the
-# tmux session) and its project (the git repo it runs in, else the directory).
+# tmux session, or the directory when grouped) and its project (the git repo
+# it runs in, else the directory).
 #
 #   agents            popup panel: Enter jumps to the agent and closes
 #   agents --watch    pinned panel: stays open, Enter shows the agent and keeps focus, p toggles preview
@@ -159,16 +160,17 @@ list() {
     return
   fi
 
-  local prev=''
+  # A group heading: the name centred between bars, cut with … when it can't
+  # fit. The floor keeps every cut non-negative on an absurdly narrow panel.
+  local prev='' hw=$(( cols - 1 )) bars s n
+  [ "$hw" -ge 5 ] || hw=5
+  printf -v bars '%*s' "$hw" ''; bars="${bars// /─}"
   while IFS="$US" read -r _ since id st agent proj title sess; do
     local glyph label col who='' ago where=''
     if [ "$group" = on ] && [ "$sess" != "$prev" ]; then
-      # The name centred between bars, cut with … when it can't fit.
-      local w=$(( cols - 1 )) s="$sess" l bars
-      [ "${#s}" -gt $(( w - 4 )) ] && s="${s:0:w-5}…"
-      l=$(( (w - ${#s} - 2) / 2 ))
-      printf -v bars '%*s' "$w" ''; bars="${bars// /─}"
-      printf -- '-%s\t %s%s %s %s%s\n' "$sess" "$DIM" "${bars:0:l}" "$s" "${bars:0:w-${#s}-2-l}" "$R"
+      s="$sess"; [ "${#s}" -gt $(( hw - 4 )) ] && s="${s:0:hw-5}…"
+      n=$(( hw - ${#s} - 2 ))
+      printf -- '-%s\t %s%s %s %s%s\n' "$sess" "$DIM" "${bars:0:n/2}" "$s" "${bars:0:n-n/2}" "$R"
       prev="$sess"
     fi
     case "$st" in
@@ -332,7 +334,7 @@ panel() {
     --bind="m:execute($self --message {1})+reload-sync($self --list)" \
     --bind="n:execute($self --rename {1})+reload-sync($self --list)" \
     --bind="r:reload-sync($self --list)" \
-    --bind="g:execute-silent(tmux if -F '#{==:#{@agents_group},on}' 'set -g @agents_group off' 'set -g @agents_group on' \\; wait-for -S agents)+reload-sync($self --list)" \
+    --bind="g:execute-silent($self --group)+reload-sync($self --list)" \
     --bind="p:toggle-preview+transform-preview-label:$label" \
     --bind='j:down,k:up,q:abort,esc:abort' \
     >/dev/null || true
@@ -352,5 +354,7 @@ case "${1:-}" in
   --interrupt) interrupt "${2:-}" ;;
   --message)   message "${2:-}" ;;
   --rename)    rename "${2:-}" ;;
+  # g: flip grouping, and wake every open panel so popup and dock agree.
+  --group)     tmux set -gF @agents_group '#{?#{==:#{@agents_group},on},off,on}' \; wait-for -S agents ;;
   *)           die "usage: $(basename "$0") [--watch|--list]" ;;
 esac
