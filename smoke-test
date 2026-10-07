@@ -83,6 +83,7 @@ t set -g @agent_c_input 196
 "$here/agents" --list | grep "^$b" | grep -q $'\033\\[38;5;196m' || fail "@agent_c_input not used"
 t set -g @agent_c_input 214
 h="$(NO_COLOR=1 "$here/agents" --list | sed -n 1p)"; case "$h" in "-	 STATE"*" SESSION "*" PROJECT "*" AGE") ;; *) fail "column headings: $h" ;; esac
+NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list >/dev/null || fail "narrow list failed"
 NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list | sed -n 1p | grep -q PROJECT && fail "narrow headings kept the project"
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"

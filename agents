@@ -58,7 +58,7 @@ widths() {
     pw=$(( rest / 3 )); [ "$pw" -gt 14 ] && pw=14
     tw=$(( rest - pw ))
   else
-    pw=0 tw=$(( rest + 1 )); [ "$tw" -lt 6 ] && tw=6
+    pw=0 tw=$(( rest + 1 )); [ "$tw" -ge 6 ] || tw=6
   fi
 }
 
