@@ -115,10 +115,37 @@ while IFS=$'\t' read -r _ row _; do
   case "$row" in *smokeproj*|*PROJECT*) fail "narrow row kept the project: $row" ;; esac
   [ "${#row}" -le 35 ] || fail "row wider than a 42-column panel: $row"
 done < <(FZF_COLUMNS=40 "$here/agents" --list)
-printf 'Login → OAuth\n' | "$here/agents" --rename "$b" >/dev/null
+"$here/agents" --rename "$b" 'Login → OAuth'
 "$here/agents" --list | grep "^$b" | grep -q 'mLogin → OAuth ' || fail "rename not shown"
-printf '\n' | "$here/agents" --rename "$b" >/dev/null
+"$here/agents" --rename "$b"
 "$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "empty rename did not reset"
+# The inline fields, as fzf drives them through --key. n pre-fills the row's
+# full name, the list's hidden third field; ↵ on it untouched must not freeze
+# the title as a name.
+k() { FZF_PROMPT="$1" FZF_QUERY="${2:-}" AGENTS_ENTER=jump AGENTS_FOOTER=keys \
+  AGENTS_M=open-m AGENTS_N=open-n "$here/agents" --key "${@:3}"; }
+shown="$("$here/agents" --list | grep "^$b" | cut -f3)"; [ "$shown" = "Fix login" ] || fail "hidden name field: $shown"
+[ "$(k '> ' '' m "$b")" = open-m ] && [ "$(k '> ' '' n "$b")" = open-n ] || fail "m/n did not open on an agent"
+[ -z "$(k '> ' '' m -work)$(k '> ' '' n -work)" ] || fail "m/n opened on a heading"
+k '> ' '' message "$(printf '%030d' 0)" | grep -q '^message to 0\{23\}… › $' || fail "long name not cut in the prompt"
+[ "$(k 'rename X › ' '' rename X)" = 'rename X › ' ] || fail "rename prompt"
+[ "$(k 'rename Fix login › ' 'Fix login' enter "$b" 'Fix login')" = change-footer:keys ] || fail "untouched rename did something"
+[ -z "$(t show -pv -t "$b" @agent_name 2>/dev/null)" ] || fail "untouched rename froze the title"
+k 'rename Fix login › ' 'Fix it' enter "$b" 'Fix login' | grep -q 'renamed to .*Fix it' || fail "rename footer"
+[ "$(t show -pv -t "$b" @agent_name)" = 'Fix it' ] || fail "inline rename not set"
+k 'rename Fix it › ' '' enter "$b" 'Fix it' | grep -q 'name reset' || fail "reset footer"
+[ -z "$(t show -pv -t "$b" @agent_name 2>/dev/null)" ] || fail "inline reset kept the name"
+mp="$(t new-window -d -P -F '#{pane_id}' -t side: cat)"
+k 'message to cat › ' 'hi; -x )' enter "$mp" cat | grep -q 'sent to .*cat' || fail "message footer"
+sleep 0.3; t capture-pane -p -t "$mp" | grep -qF 'hi; -x )' || fail "message not typed"
+[ "$(k 'message to cat › ' '' enter "$mp" cat)" = change-footer:keys ] || fail "empty message did something"
+t kill-pane -t "$mp"
+k 'message to cat › ' hi enter "$mp" cat | grep -q 'not sent: .*cat.* is gone' || fail "message to a gone pane claimed success"
+k 'rename cat › ' x enter "$mp" cat | grep -q 'not renamed' || fail "rename of a gone pane claimed success"
+[ "$(k '> ' '' enter "$b")" = jump ] && [ "$(k '> ' '' esc)" = abort ] || fail "↵/esc outside a field"
+[ "$(k 'message to X › ' '' esc)" = change-footer:keys ] || fail "esc in a field closed the panel"
+[ "$(k '> ' '' reload)" = "reload-sync($here/agents --list)" ] || fail "reload outside a field"
+[ -z "$(k 'rename X › ' '' reload)$(k 'rename X › ' '' restore)" ] || fail "reload/restore touched an open field"
 [ -z "$(t display -p -t "$shell" '#{@agent_state}#{@agent_dir}#{@agent_project}')" ] || fail "stale shell pane kept its state"
 # Other harnesses: the name shows, the title they give themselves doesn't.
 TMUX_PANE=$c "$here/agent-state" running copilot </dev/null

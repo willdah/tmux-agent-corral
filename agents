@@ -11,7 +11,7 @@
 #
 #   agents            popup panel: Enter jumps to the agent and closes
 #   agents --watch    pinned panel: stays open, Enter shows the agent and keeps focus, p toggles preview
-#   agents --list     the column headings, then the rows, tab-separated (pane id, display)
+#   agents --list     the column headings, then the rows, tab-separated (pane id, display, full name)
 #
 # Keys: ↵ jump · y approve · m message · n rename · x interrupt · g group · r refresh · q close
 #
@@ -184,13 +184,14 @@ list() {
     widths "$who"
     [ "$pw" -gt 0 ] && { fit cell "$pw" "$proj"; where=" $DIM$cell$R"; }
     fit cell "$tw" "$title"; age ago "$since"
-    printf '%s\t %s%s %-9s%s  %s%s%s%s %s%4s%s%s%s%s\n' \
+    printf '%s\t %s%s %-9s%s  %s%s%s%s %s%4s%s%s%s%s\t%s\n' \
       "$id" \
       "$col" "$glyph" "$label" "$R" \
       "$TEXT" "$cell" "$R" \
       "$where" \
       "$DIM" "$ago" "$R" \
-      "$DIM" "$who" "$R"
+      "$DIM" "$who" "$R" \
+      "$title"
   done <<<"$rows"
 }
 
@@ -241,25 +242,63 @@ interrupt() {
   fi
 }
 
+# message PANE TEXT: type TEXT into the agent and press Enter. Fails when the
+# pane is gone.
 message() {
   is_pane "${1:-}" || return 0
-  local msg
-  printf '\n  %s›%s message for %s: ' "$BLUE" "$R" "$(tmux display -p -t "$1" '#{session_name} › #{b:pane_current_path}')"
-  IFS= read -re msg || return 0
+  local msg="${2:-}"
   [ -n "$msg" ] || return 0
-  tmux send-keys -t "$1" -l -- "$msg"
-  tmux send-keys -t "$1" Enter
+  tmux send-keys -t "$1" -l -- "$msg" && tmux send-keys -t "$1" Enter
 }
 
-# The name shows in place of the agent's own title until the pane closes or
-# the agent ends; an empty name hands the row back to that title.
+# rename PANE [NAME]: the name shows in place of the agent's own title until
+# the pane closes or the agent ends; an empty name hands the row back to that
+# title. Fails when the pane is gone.
 rename() {
   is_pane "${1:-}" || return 0
-  local name
-  printf '\n  %s›%s name for %s (empty resets): ' "$BLUE" "$R" "$(tmux display -p -t "$1" '#{session_name} › #{b:pane_current_path}')"
-  IFS= read -re name || return 0
-  if [ -n "$name" ]; then tmux set -p -t "$1" @agent_name "$name"
-  else tmux set -pu -t "$1" @agent_name 2>/dev/null || true
+  if [ -n "${2:-}" ]; then tmux set -p -t "$1" @agent_name "$2"
+  else tmux set -pu -t "$1" @agent_name
+  fi
+}
+
+# m and n turn fzf's own input line into a field for the selected agent, so
+# the panel never leaves the screen. fzf runs key for each step ($AGENTS_* set
+# by panel):
+#   key m|n PANE            open the field, on an agent's row only
+#   key message|rename SHOWN  the prompt, naming the agent, cut for the dock
+#   key enter PANE SHOWN    send or rename, then say in the footer how it went,
+#                           put back by key restore 3s later; elsewhere, jump
+#   key esc                 leave the field, or close the panel
+#   key reload              the refresh, held while a field is open so the
+#                           row being written to stays the selected one
+# Closing the field is chained after key in the bind: fzf drops a clear-query
+# that comes out of a transform, and the query would go on filtering the list.
+key() {
+  local did=''
+  case "$1:$FZF_PROMPT" in
+    m:*|n:*)              is_pane "${2:-}" || return 0
+                          if [ "$1" = m ]; then printf '%s' "$AGENTS_M"; else printf '%s' "$AGENTS_N"; fi
+                          return ;;
+    message:*|rename:*)   local n="${2:-}"; [ "${#n}" -le 24 ] || n="${n:0:23}…"
+                          printf '%s %s › ' "${1/message/message to}" "$n"
+                          return ;;
+    'enter:message to '*) if [ -z "$FZF_QUERY" ]; then :
+                          elif message "$2" "$FZF_QUERY" 2>/dev/null; then did="${GREEN}✓${R} sent to $TEXT$3"
+                          else did="${AMBER}✗${R} not sent: $TEXT$3$R is gone"; fi ;;
+    'enter:rename '*)     if [ "$FZF_QUERY" = "$3" ]; then :
+                          elif ! rename "$2" "$FZF_QUERY" 2>/dev/null; then did="${AMBER}✗${R} not renamed: $TEXT$3$R is gone"
+                          elif [ -n "$FZF_QUERY" ]; then did="${GREEN}✓${R} renamed to $TEXT$FZF_QUERY"
+                          else did="${GREEN}✓${R} name reset"; fi ;;
+    enter:*)              printf '%s' "$AGENTS_ENTER"; return ;;
+    esc:'> ')             printf abort; return ;;
+    reload:'> ')          printf 'reload-sync(%s --list)' "$self"; return ;;
+    restore:'> ')         ;;
+    restore:*|reload:*)   return ;;
+  esac
+  if [ -n "$did" ]; then
+    printf 'execute-silent[(sleep 3; curl -fs -XPOST localhost:$FZF_PORT -d %s) >/dev/null 2>&1 &]' "'transform:$self --key restore'"
+    printf '+change-footer:%s' "$did$R"
+  else printf 'change-footer:%s' "$AGENTS_FOOTER"
   fi
 }
 
@@ -305,8 +344,17 @@ panel() {
   # Refresh through fzf's own HTTP port: at once when agent-state signals the
   # agents channel, and every 10s for the ages and for agents that died
   # without a word. Each loop ends on its first reload after fzf has gone.
-  local reload="curl -fs -XPOST localhost:\$FZF_PORT -d 'reload-sync($self --list)'"
+  local reload="curl -fs -XPOST localhost:\$FZF_PORT -d 'transform:$self --key reload'"
   local tick="(while sleep 10 && $reload; do :; done) >/dev/null 2>&1 & (while tmux wait-for agents && $reload; do :; done) >/dev/null 2>&1 &"
+
+  # While a field is open the action letters and ↑↓ type or stay put, so the
+  # row being written to can't change underneath.
+  local lock='y,x,m,n,r,g,p,j,k,q,up,down'
+  local open="unbind($lock)+disable-search+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
+  local close="+clear-query+enable-search+hide-input+change-prompt(> )+rebind($lock)+reload-sync($self --list)"
+  export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
+    AGENTS_M="$open+change-query()+transform-prompt($self --key message {3})" \
+    AGENTS_N="$open+transform-query(printf %s {3})+transform-prompt($self --key rename {3})"
 
   local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
 
@@ -315,7 +363,7 @@ panel() {
     --ansi --no-input --no-sort --layout=reverse --cycle \
     --delimiter=$'\t' --with-nth=2 --id-nth=1 --track --header-lines=1 \
     --listen --bind "start:${start}reload-sync($self --list)+execute-silent:$tick" \
-    --bind "resize:reload-sync($self --list)" \
+    --bind "resize:transform($self --key reload)" \
     --border=rounded --border-label=' agent-corral ' --border-label-pos=3 \
     --info=hidden --pointer='▌' --gutter=' ' \
     --footer="${footer%  }" \
@@ -326,15 +374,17 @@ panel() {
     --color='fg:250,bg:-1,fg+:255,bg+:236,hl:110,hl+:110' \
     --color='border:238,label:110,preview-border:238,preview-label:247,footer-border:238' \
     --color='pointer:110,marker:110,gutter:-1,info:247,header:250' \
-    --bind="enter:$enter" \
+    --color='prompt:110,query:255' \
+    --bind="enter:transform($self --key enter {1} {3})$close" \
+    --bind="esc:transform($self --key esc)$close" \
     --bind="y:execute-silent($self --approve {1})+reload-sync($self --list)" \
     --bind="x:execute-silent($self --interrupt {1})" \
-    --bind="m:execute($self --message {1})+reload-sync($self --list)" \
-    --bind="n:execute($self --rename {1})+reload-sync($self --list)" \
+    --bind="m:transform($self --key m {1})" \
+    --bind="n:transform($self --key n {1})" \
     --bind="r:reload-sync($self --list)" \
     --bind="g:execute-silent($self --group)+reload-sync($self --list)" \
     --bind="p:toggle-preview+transform-preview-label:$label" \
-    --bind='j:down,k:up,q:abort,esc:abort' \
+    --bind='j:down,k:up,q:abort' \
     >/dev/null || true
   # Wake this panel's waiter so it sees fzf gone and exits now, not on the
   # next state change; any other open panel just reloads once.
@@ -350,8 +400,9 @@ case "${1:-}" in
   --jump)      jump "${2:-}" "${3:-}" ;;
   --approve)   approve "${2:-}" ;;
   --interrupt) interrupt "${2:-}" ;;
-  --message)   message "${2:-}" ;;
-  --rename)    rename "${2:-}" ;;
+  --message)   shift; message "$@" ;;
+  --rename)    shift; rename "$@" ;;
+  --key)       shift; key "$@" ;;
   # g: flip grouping, and wake every open panel so popup and dock agree.
   --group)     tmux set -gF @agents_group '#{?#{==:#{@agents_group},on},off,on}' \; wait-for -S agents ;;
   *)           die "usage: $(basename "$0") [--watch|--list]" ;;
