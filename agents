@@ -97,10 +97,10 @@ stale() {
 list() {
   local US=$'\037'   # unit separator: unlike a tab, read keeps empty fields
   local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{pane_current_command}${US}#{pane_pid}${US}#{@agent_dir}${US}#{@agent_project}${US}#{@agent_name}${US}#{pane_title}"
-  local rows host="${HOSTNAME:-$(hostname)}" now group fb keys=(-k1,1n -k2,2n)
+  local rows host="${HOSTNAME:-$(hostname)}" now group fb keys=('-k1,1n' '-k2,2n')
   now="$(date +%s)"
   group="$(tmux show -gv @agents_group 2>/dev/null || true)"
-  [ "$group" = on ] && keys=(-k8,8 "${keys[@]}")
+  [ "$group" = on ] && keys=('-k8,8' "${keys[@]}")
   # tmux before 3.5 prints the separator as a literal \037; turn it back.
   rows="$(tmux list-panes -a -f '#{@agent_state}' -F "$fmt" | sed "s/\\\\037/$US/g" | while IFS="$US" read -r id st since agent sess dir cmd pid pdir proj name title; do
     if stale "$cmd" "$pid"; then
