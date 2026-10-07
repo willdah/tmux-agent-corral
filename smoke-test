@@ -273,6 +273,15 @@ n="$(t new-window -d -P -F '#{pane_id}' -t work: 'sleep 600')"; t resize-window 
 landed "$n" "jump into a narrow window"
 [ "$(t display -p -t "$p" '#{window_id}')" = "$w2" ] || fail "the panel followed into a narrow window"
 t kill-pane -t "$n"
+# A window the client has not shown yet keeps its old size until it is (80
+# columns in a session nobody has been on), so the jump judges by the
+# client's width, and the panel follows. Only a window sized by hand, like
+# the narrow one above, keeps its own.
+[ "$(t display -p -t "$d" '#{window_width}')" = 80 ] || fail "side is not at its unvisited size"
+"$here/agents" --jump "$d" stay
+landed "$d" "jump into an unvisited session"
+[ "$(t display -p -t "$p" '#{window_id}:#{pane_active}')" = "$(wid "$d"):1" ] || fail "jump into an unvisited session lost the panel"
+[ "$(t display -p -t "$p" '#{pane_width}')" = 64 ] || fail "panel not 64 wide after the window took the client's size: $(t display -p -t "$p" '#{pane_width}')"
 # Into a zoomed window the panel can't follow, so the agent gets focus.
 "$here/agents-dock" toggle "$w2"; "$here/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"
 z="$(t split-window -d -P -F '#{pane_id}' -t "$c" 'sleep 600')"; t resize-pane -Z -t "$c"
