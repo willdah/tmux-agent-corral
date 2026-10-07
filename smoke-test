@@ -56,6 +56,27 @@ TMUX_PANE=$a "$here/agent-state" running </dev/null
 t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y   # the stale sweep drops these too
 order="$("$here/agents" --list | tail -n +2 | cut -f1 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
+# Grouped: a heading per session, sessions by name, each in the usual order;
+# an untitled row names its directory, not the session its heading shows.
+t set -g @agents_group off; "$here/agents" --group
+[ "$(t show -gv @agents_group)" = on ] || fail "--group did not turn grouping on"
+order="$("$here/agents" --list | tail -n +2 | cut -f1 | tr '\n' ' ')"
+[ "$order" = "-side $d -work $b $c $a " ] || fail "grouped order: $order"
+h="$(NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list | grep '^-work' | cut -f2)"
+bars=──────────────   # 14 a side: 34 columns less " work "
+[ "$h" = " $bars work $bars" ] || fail "group heading not centred: $h"
+h="$(NO_COLOR=1 FZF_COLUMNS=60 "$here/agents" --list | grep '^-work' | cut -f2)"
+[ "${#h}" -le 57 ] || fail "group heading wider than the 64-column dock: $h"
+NO_COLOR=1 FZF_COLUMNS=10 "$here/agents" --list >/dev/null || fail "grouped list failed on a narrow panel"
+# A heading is no pane: every action leaves it alone.
+for f in --jump --approve --interrupt --rename; do
+  "$here/agents" "$f" -work </dev/null >/dev/null || fail "$f on a heading"
+done
+NO_COLOR=1 "$here/agents" --list | grep "^$a" | grep -q 'working    smokeproj' || fail "grouped untitled row"
+h="$(NO_COLOR=1 FZF_COLUMNS=12 "$here/agents" --list | grep '^-work' | cut -f2)"
+[ "${#h}" -le 7 ] || fail "group heading wider than the panel: $h"
+t set -g @agents_group on; "$here/agents" --group
+[ "$(t show -gv @agents_group)" = off ] || fail "--group did not turn grouping off"
 t select-pane -t "$b" -T '✳ Fix login'
 "$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "title not shown"
 "$here/agents" --list | grep "^$a" | grep -q 'mwork ' || fail "untitled row lost its place"
@@ -83,6 +104,7 @@ t set -g @agent_c_input 196
 "$here/agents" --list | grep "^$b" | grep -q $'\033\\[38;5;196m' || fail "@agent_c_input not used"
 t set -g @agent_c_input 214
 h="$(NO_COLOR=1 "$here/agents" --list | sed -n 1p)"; case "$h" in "-	 STATE"*" SESSION "*" PROJECT "*" AGE") ;; *) fail "column headings: $h" ;; esac
+NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list >/dev/null || fail "narrow list failed"
 NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list | sed -n 1p | grep -q PROJECT && fail "narrow headings kept the project"
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"

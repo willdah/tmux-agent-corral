@@ -98,6 +98,7 @@ Inside the panel:
 | `m` | type a message to it |
 | `n` | give it a name (empty resets to the agent's own title) |
 | `x` | interrupt: sends Escape (C-c to Copilot), and only to an agent that is working |
+| `g` | group by tmux session (sessions in name order); not in the docked panel's key hints, but works there |
 | `p` | toggle the live preview |
 | `r` | refresh |
 | `j` / `k` | move down / up |
@@ -117,6 +118,8 @@ Set any of these after the `source-file` line. Values are 256-colour indexes.
 | `@agent_c_running` | `110` | `●` working |
 | `@agent_c_done` | `108` | `✓` finished |
 | `@agent_c_text`, `@agent_c_dim` | `250`, `247` | panel text; use about `236`/`240` on a light theme |
+
+`set -g @agents_group on` starts the panel grouped by tmux session (`g` toggles it).
 
 `NO_COLOR=1` turns the panel's colours off.
 

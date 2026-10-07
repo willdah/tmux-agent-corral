@@ -6,13 +6,18 @@
 # protocol. Rows that need you sort first (waiting on you, then finished,
 # then idle; working last), oldest wait at the top. A row shows the session's
 # name (one you gave it with n, else the pane title Claude Code sets, else the
-# tmux session) and its project (the git repo it runs in, else the directory).
+# tmux session, or the directory when grouped) and its project (the git repo
+# it runs in, else the directory).
 #
 #   agents            popup panel: Enter jumps to the agent and closes
 #   agents --watch    pinned panel: stays open, Enter shows the agent and keeps focus, p toggles preview
 #   agents --list     the column headings, then the rows, tab-separated (pane id, display)
 #
-# Keys: ↵ jump · y approve · m message · n rename · x interrupt · r refresh · q close
+# Keys: ↵ jump · y approve · m message · n rename · x interrupt · g group · r refresh · q close
+#
+# With @agents_group on (g toggles it), the rows sit under a heading per tmux
+# session, sessions in name order, each in the usual order. A heading's id is
+# -<session>: unique for --track, and no pane, so actions skip it.
 #
 # Columns fit the panel's width (fzf's $FZF_COLUMNS), headings included.
 # NO_COLOR turns the colours off.
@@ -58,7 +63,7 @@ widths() {
     pw=$(( rest / 3 )); [ "$pw" -gt 14 ] && pw=14
     tw=$(( rest - pw ))
   else
-    pw=0 tw=$(( rest + 1 )); [ "$tw" -lt 6 ] && tw=6
+    pw=0 tw=$(( rest + 1 )); [ "$tw" -ge 6 ] || tw=6
   fi
 }
 
@@ -93,8 +98,10 @@ stale() {
 list() {
   local US=$'\037'   # unit separator: unlike a tab, read keeps empty fields
   local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{pane_current_command}${US}#{pane_pid}${US}#{@agent_dir}${US}#{@agent_project}${US}#{@agent_name}${US}#{pane_title}"
-  local rows host="${HOSTNAME:-$(hostname)}" now
+  local rows host="${HOSTNAME:-$(hostname)}" now group fb keys=('-k1,1n' '-k2,2n')
   now="$(date +%s)"
+  group="$(tmux show -gv @agents_group 2>/dev/null || true)"
+  [ "$group" = on ] && keys=('-k8,8' "${keys[@]}")
   # tmux before 3.5 prints the separator as a literal \037; turn it back.
   rows="$(tmux list-panes -a -f '#{@agent_state}' -F "$fmt" | sed "s/\\\\037/$US/g" | while IFS="$US" read -r id st since agent sess dir cmd pid pdir proj name title; do
     if stale "$cmd" "$pid"; then
@@ -121,8 +128,10 @@ list() {
     case "$title" in ("π - ${dir##*/}") title= ;; esac
     case "${title%% *}" in (*[[:alnum:]]*) ;; (*) title="${title#* }" ;; esac
     case "$title" in ("$host"|'Claude Code'|'GitHub Copilot') title= ;; esac
-    printf "%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s\n" "$rank" "${since:-0}" "$id" "$st" "$agent" "$proj" "${name:-${title:-$sess}}"
-  done | sort -t"$US" -k1,1n -k2,2n)"
+    # Under the session heading, an untitled row names its directory instead.
+    fb="$sess"; [ "$group" = on ] && fb="${dir##*/}"
+    printf "%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s\n" "$rank" "${since:-0}" "$id" "$st" "$agent" "$proj" "${name:-${title:-$fb}}" "$sess"
+  done | sort -t"$US" "${keys[@]}")"
 
   # Width: fzf's columns inside its border, less 4 for padding, pointer and
   # gutter and one spare for the scrollbar. fzf reports 0 during its start
@@ -151,8 +160,19 @@ list() {
     return
   fi
 
-  while IFS="$US" read -r _ since id st agent proj title; do
+  # A group heading: the name centred between bars, cut with … when it can't
+  # fit. The floor keeps every cut non-negative on an absurdly narrow panel.
+  local prev='' hw=$(( cols - 1 )) bars s n
+  [ "$hw" -ge 5 ] || hw=5
+  printf -v bars '%*s' "$hw" ''; bars="${bars// /─}"
+  while IFS="$US" read -r _ since id st agent proj title sess; do
     local glyph label col who='' ago where=''
+    if [ "$group" = on ] && [ "$sess" != "$prev" ]; then
+      s="$sess"; [ "${#s}" -gt $(( hw - 4 )) ] && s="${s:0:hw-5}…"
+      n=$(( hw - ${#s} - 2 ))
+      printf -- '-%s\t %s%s %s %s%s\n' "$sess" "$DIM" "${bars:0:n/2}" "$s" "${bars:0:n-n/2}" "$R"
+      prev="$sess"
+    fi
     case "$st" in
       input)   glyph='▲' label='needs you' col=$AMBER ;;
       running) glyph='●' label='working'   col=$BLUE  ;;
@@ -275,7 +295,7 @@ panel() {
   else
     enter="become($self --jump {1})"
     preview='down,65%,follow,border-top'
-    keys='↵ jump|y approve|m message|n rename|x interrupt|p preview|q close'
+    keys='↵ jump|y approve|m message|n rename|x interrupt|g group|p preview|q close'
   fi
   local footer='' k
   while IFS= read -r -d '|' k; do
@@ -288,7 +308,7 @@ panel() {
   local reload="curl -fs -XPOST localhost:\$FZF_PORT -d 'reload-sync($self --list)'"
   local tick="(while sleep 10 && $reload; do :; done) >/dev/null 2>&1 & (while tmux wait-for agents && $reload; do :; done) >/dev/null 2>&1 &"
 
-  local label='[ {1} != - ] && tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} "'
+  local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
 
   # The first list loads through reload so it, too, sees $FZF_COLUMNS.
   fzf </dev/null \
@@ -300,7 +320,7 @@ panel() {
     --info=hidden --pointer='▌' --gutter=' ' \
     --footer="${footer%  }" \
     --footer-border=line \
-    --preview='[ {1} != - ] && tmux capture-pane -pe -J -t {1} -S -80 | awk "{l[NR]=\$0} NF{n=NR} END{for(i=1;i<=n;i++)print l[i]}"' \
+    --preview='case {1} in %*) tmux capture-pane -pe -J -t {1} -S -80 | awk "{l[NR]=\$0} NF{n=NR} END{for(i=1;i<=n;i++)print l[i]}" ;; esac' \
     --preview-window="$preview" \
     --bind="focus:transform-preview-label:$label" \
     --color='fg:250,bg:-1,fg+:255,bg+:236,hl:110,hl+:110' \
@@ -312,6 +332,7 @@ panel() {
     --bind="m:execute($self --message {1})+reload-sync($self --list)" \
     --bind="n:execute($self --rename {1})+reload-sync($self --list)" \
     --bind="r:reload-sync($self --list)" \
+    --bind="g:execute-silent($self --group)+reload-sync($self --list)" \
     --bind="p:toggle-preview+transform-preview-label:$label" \
     --bind='j:down,k:up,q:abort,esc:abort' \
     >/dev/null || true
@@ -331,5 +352,7 @@ case "${1:-}" in
   --interrupt) interrupt "${2:-}" ;;
   --message)   message "${2:-}" ;;
   --rename)    rename "${2:-}" ;;
+  # g: flip grouping, and wake every open panel so popup and dock agree.
+  --group)     tmux set -gF @agents_group '#{?#{==:#{@agents_group},on},off,on}' \; wait-for -S agents ;;
   *)           die "usage: $(basename "$0") [--watch|--list]" ;;
 esac
