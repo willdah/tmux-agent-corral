@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.4.0](https://github.com/willdah/tmux-agent-corral/compare/0.3.3...0.4.0) - 2026-10-07
+
+### Added
+
+- column headings, agent-corral title, focus-aware docked title
+- the docked panel's title shows when it has focus
+- the panel names its columns and is called agent-corral
+
 ## [0.3.3](https://github.com/willdah/tmux-agent-corral/compare/0.3.2...0.3.3) - 2026-10-06
 
 ### Fixed
