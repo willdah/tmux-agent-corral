@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.8.0](https://github.com/willdah/tmux-agent-corral/compare/0.7.0...0.8.0) - 2026-10-09
+
+### Added
+
+- grouped panel leads with the most urgent session
+- grouped panel puts the most urgent session first, with headings that count each session's agents by state and a gap above every group
+
 ## [0.7.0](https://github.com/willdah/tmux-agent-corral/compare/0.6.2...0.7.0) - 2026-10-09
 
 ### Added
