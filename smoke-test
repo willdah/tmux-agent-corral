@@ -57,24 +57,27 @@ TMUX_PANE=$a "$here/agent-state" running </dev/null
 t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y   # the stale sweep drops these too
 order="$("$here/agents" --list | tail -n +2 | cut -f1 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
-# Grouped: a heading per session, sessions by name, each in the usual order;
-# an untitled row names its directory, not the session its heading shows.
+# Grouped: a heading per session, the session with the most urgent row first
+# (b and d wait from the same second, so either), each in the usual order; an untitled row names its directory, not the
+# session its heading shows.
 t set -g @agents_group off; "$here/agents" --group
 [ "$(t show -gv @agents_group)" = on ] || fail "--group did not turn grouping on"
 order="$("$here/agents" --list | tail -n +2 | cut -f1 | tr '\n' ' ')"
-[ "$order" = "-side $d -work $b $c $a " ] || fail "grouped order: $order"
+case "$order" in "-work $b $c $a -side $d "|"-side $d -work $b $c $a ") ;; *) fail "grouped order: $order" ;; esac
 h="$(NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list | grep '^-work' | cut -f2)"
-bars=──────────────   # 14 a side: 34 columns less " work "
-[ "$h" = " $bars work $bars" ] || fail "group heading not centred: $h"
-h="$(NO_COLOR=1 FZF_COLUMNS=60 "$here/agents" --list | grep '^-work' | cut -f2)"
+[ "$h" = $' \e[1mwork\e[22m ──────────────────── ▲1 ✓1 ●1' ] || fail "group heading: $h"   # bold stays under NO_COLOR
+h="$(NO_COLOR=1 FZF_COLUMNS=60 "$here/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
 [ "${#h}" -le 57 ] || fail "group heading wider than the 64-column dock: $h"
 NO_COLOR=1 FZF_COLUMNS=10 "$here/agents" --list >/dev/null || fail "grouped list failed on a narrow panel"
+# The panel's list: NUL-separated, a blank line opening every heading.
+gaps="$("$here/agents" --list0 | tr '\0' '\036' | tr -cd '\036\n' | tr '\036' .)"
+case "$gaps" in $'.\n....\n..'|$'.\n..\n....') ;; *) fail "group gaps: $(printf %q "$gaps")" ;; esac
 # A heading is no pane: every action leaves it alone.
 for f in --jump --approve --interrupt --rename; do
   "$here/agents" "$f" -work </dev/null >/dev/null || fail "$f on a heading"
 done
 NO_COLOR=1 "$here/agents" --list | grep "^$a" | grep -q 'working    smokeproj' || fail "grouped untitled row"
-h="$(NO_COLOR=1 FZF_COLUMNS=12 "$here/agents" --list | grep '^-work' | cut -f2)"
+h="$(NO_COLOR=1 FZF_COLUMNS=12 "$here/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
 [ "${#h}" -le 7 ] || fail "group heading wider than the panel: $h"
 t set -g @agents_group on; "$here/agents" --group
 [ "$(t show -gv @agents_group)" = off ] || fail "--group did not turn grouping off"
@@ -145,7 +148,7 @@ k 'message to cat › ' hi enter "$mp" cat | grep -q 'not sent: .*cat.* is gone'
 k 'rename cat › ' x enter "$mp" cat | grep -q 'not renamed' || fail "rename of a gone pane claimed success"
 [ "$(k '> ' '' enter "$b")" = jump ] && [ "$(k '> ' '' esc)" = abort ] || fail "↵/esc outside a field"
 [ "$(k 'message to X › ' '' esc)" = change-footer:keys ] || fail "esc in a field closed the panel"
-[ "$(k '> ' '' reload)" = "reload-sync($here/agents --list)" ] || fail "reload outside a field"
+[ "$(k '> ' '' reload)" = "reload-sync($here/agents --list0)" ] || fail "reload outside a field"
 [ -z "$(k 'rename X › ' '' reload)$(k 'rename X › ' '' restore)" ] || fail "reload/restore touched an open field"
 [ -z "$(t display -p -t "$shell" '#{@agent_state}#{@agent_dir}#{@agent_project}')" ] || fail "stale shell pane kept its state: $(t display -p -t "$shell" "#{@agent_state}|#{@agent_dir}|#{@agent_project}|#{pane_current_command}|#{pane_pid}")"
 # Other harnesses: the name shows, the title they give themselves doesn't.
@@ -173,7 +176,7 @@ case "$h" in *AGENT*) fail "dock headings kept the agent over the project: $h" ;
 t set -g @agents_group on
 for W in 60 200; do
   out="$(L "$W")"
-  h="$(printf '%s\n' "$out" | grep '^-work' | cut -f2)" r="$(printf '%s\n' "$out" | grep "^$a" | cut -f2)"
+  h="$(printf '%s\n' "$out" | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')" r="$(printf '%s\n' "$out" | grep "^$a" | cut -f2)"
   [ "${#h}" = "${#r}" ] || fail "heading ${#h} wide, rows ${#r}, at $W"
 done
 t set -g @agents_group off
