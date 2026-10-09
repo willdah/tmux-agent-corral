@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.10.0](https://github.com/willdah/tmux-agent-corral/compare/0.9.0...0.10.0) - 2026-10-09
+
+### Added
+
+- d kills an agent's pane, once ↵ confirms it
+
 ## [0.9.0](https://github.com/willdah/tmux-agent-corral/compare/0.8.0...0.9.0) - 2026-10-09
 
 ### Added
