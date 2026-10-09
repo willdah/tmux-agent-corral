@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # agent-state <input|running|done|idle|clear> [harness]
 # agent-state wait PANE [STATE...] [--timeout SECONDS]
+# agent-state prompt PANE TEXT
 #
 # Tags the calling tmux pane with an agent's state so the status line, window
 # tabs and the `agents` panel can show it. Harness-agnostic: anything that can
@@ -19,13 +20,18 @@
 # panel waits on to refresh at once.
 #
 # The state verbs always exit 0: a hook that fails must never get in the
-# agent's way. wait is for scripts and other agents, and exits 1:
+# agent's way. The two below are for scripts and other agents, and exit 1:
 #
 #   wait    returns once PANE is in one of the STATEs (default: input done;
 #           clear: the agent is gone); 1 on the timeout, when the pane is
 #           gone, or when the agent ends without getting there
+#   prompt  types TEXT into the agent in PANE and presses Enter, and marks it
+#           running so a wait right after it does not read the last turn's
+#           done; 1 when PANE is no agent, or is waiting on you (TEXT would
+#           answer its question)
 
 command -v tmux >/dev/null 2>&1 || exit 0
+here() { cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd; }
 
 # state_of PANE: sets pid to the pane's id and s to its state; fails when the
 # pane is gone (display -p exits 0 with an empty id for a target it can't find).
@@ -60,6 +66,16 @@ case "${1:-}" in
       [ -n "$limit" ] && [ "$(date +%s)" -ge "$until" ] && exit 1
       tmux wait-for agents 2>/dev/null || exit 1
     done
+    ;;
+  prompt)
+    p="${2:-}" text="${3:-}"
+    [ -n "$p" ] && [ -n "$text" ] || exit 1
+    state_of "$p" || exit 1
+    [ -n "$s" ] || { echo "agents: $p is not an agent" >&2; exit 1; }
+    [ "$s" = input ] && { echo "agents: $p is waiting on you; answer it first" >&2; exit 1; }
+    "$(here)/agents" --message "$pid" "$text" || exit 1
+    TMUX_PANE="$pid" "$0" running "$(tmux display -p -t "$pid" '#{@agent}')" </dev/null
+    exit 0
     ;;
 esac
 

@@ -346,6 +346,23 @@ TMUX_PANE=$a "$here/agent-state" clear </dev/null; sleep 0.3
 kill -0 "$wp" 2>/dev/null && { kill "$wp"; fail "wait outlived its agent"; }
 "$here/agent-state" wait "$a" clear || fail "wait clear on a gone agent"
 TMUX_PANE=$a "$here/agent-state" running </dev/null
+# prompt: types into a working agent; a pane that is no agent, or one waiting
+# on you, is refused (the text would answer its question).
+pc="$(t new-window -d -P -F '#{pane_id}' -t side: cat)"
+"$here/agent-state" prompt "$pc" hello && fail "prompt accepted an untagged pane"
+TMUX_PANE=$pc "$here/agent-state" input </dev/null
+"$here/agent-state" prompt "$pc" hello && fail "prompt typed into a waiting agent"
+TMUX_PANE=$pc "$here/agent-state" running </dev/null
+"$here/agent-state" prompt "$pc" hello || fail "prompt refused a working agent"
+sleep 0.3; t capture-pane -p -t "$pc" | grep -q '^hello$' || fail "prompt text not typed"
+# A finished agent reads running once prompted, so a wait right after does
+# not return on the old done; any tmux target works, and the name survives.
+TMUX_PANE=$pc "$here/agent-state" done pi </dev/null
+"$here/agent-state" prompt "$(t display -p -t "$pc" '#{session_name}:#{window_index}.#{pane_index}')" again || fail "prompt by target"
+sleep 0.3; t capture-pane -p -t "$pc" | grep -q '^again$' || fail "prompt by target not typed"
+[ "$(t display -p -t "$pc" '#{@agent_state} #{@agent}')" = 'running pi' ] || fail "prompt did not mark the agent running"
+"$here/agent-state" wait "$pc" done --timeout 1 && fail "wait after prompt returned on the old done"
+t kill-pane -t "$pc"
 TMUX_PANE=$a "$here/agent-state" running </dev/null
 
 # No agents left: the panel says so instead of going blank.

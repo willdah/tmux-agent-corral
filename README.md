@@ -137,13 +137,18 @@ The protocol is one script. `agent-state <input|running|done|idle|clear> [name]`
 
 ### Scripting
 
-One more verb drives agents from a script, a hook, or another agent:
+Two more verbs drive agents from a script, a hook, or another agent:
 
 ```sh
 agent-state wait PANE [STATE...] [--timeout SECONDS]   # block until PANE is in one of the states (default: input done)
+agent-state prompt PANE TEXT                           # type TEXT into the agent in PANE and press Enter
 ```
 
-`wait` exits 0 when the state is reached (`clear` means the agent has ended), 1 on the timeout, when the pane is gone, or when the agent ends first.
+`wait` exits 0 when the state is reached (`clear` means the agent has ended), 1 on the timeout, when the pane is gone, or when the agent ends first. `prompt` exits 1 when `PANE` is not an agent or is waiting on you, so a prompt never lands in a permission dialog; answer it first (`y` in the panel, or `tmux send-keys -t PANE Enter`). It marks the agent working as it sends, so a `wait` right after it waits for the new turn, not the last one. Together they hand work to a peer and wait for it:
+
+```sh
+agent-state prompt %7 "run the tests and fix what breaks" && agent-state wait %7
+```
 
 Pane ids are the first column of `agents --list`.
 
