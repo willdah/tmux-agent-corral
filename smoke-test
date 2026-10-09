@@ -12,7 +12,7 @@ cat >"$conf" <<CONF
 set -g base-index 1
 setw -g pane-base-index 1
 source-file "$here/agents.tmux"
-set -g @agents_notify off   # its list runs would sweep stale panes early; the notify checks turn it on
+set -g @agents_notify off   # the notify checks turn it on
 set -ag status-right "#{E:@agents_status}"
 setw -ag window-status-format "#{E:@agent_tab}"
 CONF
@@ -54,15 +54,23 @@ TMUX_PANE=$a "$here/agent-state" idle </dev/null; sleep 0.3
 kill -0 "$w" 2>/dev/null && { kill "$w"; fail "agent-state did not signal the agents channel"; }
 TMUX_PANE=$a "$here/agent-state" running </dev/null
 
-t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y   # the stale sweep drops these too
-order="$("$here/agents" --list | tail -n +2 | cut -f1 | tr '\n' ' ')"
+# sweep clears every field of a pane back at a bare shell, and only those.
+t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y \; set -p -t "$shell" @agent_name z
+"$here/agent-state" sweep
+f='#{@agent}#{@agent_state}#{@agent_since}#{@agent_name}#{@agent_dir}#{@agent_project}'
+[ -z "$(t display -p -t "$shell" "$f")" ] || fail "sweep left state on the stale shell pane: $(t display -p -t "$shell" "$f|#{pane_current_command}|#{pane_pid}")"
+[ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "sweep cleared a live agent"
+# --rows: eight tab-separated fields per agent, rank and since leading.
+r="$("$here/agents" --rows | grep "	$b	")"
+[ "$(printf '%s' "$r" | awk -F'\t' '{print NF, $1, $3, $4, $8}')" = "8 0 $b input work" ] || fail "rows record: $r"
+order="$("$here/agents" --rows | cut -f3 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
 # Grouped: a heading per session, the session with the most urgent row first
 # (b and d wait from the same second, so either), each in the usual order; an untitled row names its directory, not the
 # session its heading shows.
 t set -g @agents_group off; "$here/agents" --group
 [ "$(t show -gv @agents_group)" = on ] || fail "--group did not turn grouping on"
-order="$("$here/agents" --list | tail -n +2 | cut -f1 | tr '\n' ' ')"
+order="$("$here/agents" --rows | cut -f3 | tr '\n' ' ')"
 case "$order" in "-work $b $c $a -side $d "|"-side $d -work $b $c $a ") ;; *) fail "grouped order: $order" ;; esac
 h="$(NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list | grep '^-work' | cut -f2)"
 [ "$h" = $' \e[1mwork\e[22m ──────────────────── ▲1 ✓1 ●1' ] || fail "group heading: $h"   # bold stays under NO_COLOR
@@ -171,7 +179,6 @@ k 'kill › ' '' enter "$kp" sleeper | grep -q 'not killed: .*sleeper.* is gone'
 [ "$(k 'message to X › ' '' esc)" = change-footer:keys ] || fail "esc in a field closed the panel"
 [ "$(k '> ' '' reload)" = "reload-sync($here/agents --list0)" ] || fail "reload outside a field"
 [ -z "$(k 'rename X › ' '' reload)$(k 'rename X › ' '' restore)" ] || fail "reload/restore touched an open field"
-[ -z "$(t display -p -t "$shell" '#{@agent_state}#{@agent_dir}#{@agent_project}')" ] || fail "stale shell pane kept its state: $(t display -p -t "$shell" "#{@agent_state}|#{@agent_dir}|#{@agent_project}|#{pane_current_command}|#{pane_pid}")"
 # Other harnesses: the name shows, the title they give themselves doesn't.
 TMUX_PANE=$c "$here/agent-state" running copilot </dev/null
 t select-pane -t "$c" -T 'GitHub Copilot'
@@ -328,20 +335,25 @@ kill "$cc" 2>/dev/null || true
 TMUX_PANE=$c "$here/agent-state" clear </dev/null
 t source-file "$here/agents.tmux"
 
-# Seeing a finished agent dims it, and wakes the panel. With no client the
-# focus hook can't fire, so run its command on the current pane.
+# Seeing a finished agent dims it, and wakes the panel: the hook calls
+# agent-state seen. With no client the hook can't fire, so run its command on
+# the current pane, pointed at this checkout rather than the installed one.
 hook="$(t show-hooks -g 'pane-focus-in[40]' | sed 's/^[^ ]* //')"
+hook="${hook//\~\/.config\/tmux\/agents/$here}"
 cur="$(t display -p '#{pane_id}')"
-t set -p -t "$cur" @agent_state done
+t set -p -t "$cur" @agent_state done \; set -p -t "$cur" @agent_since 1234
 listen
-t run-shell -C "$hook"; sleep 0.3
-[ "$(t display -p -t "$cur" '#{@agent_state}')" = idle ] || fail "focus did not dim a finished agent"
+t run-shell -C "$hook"; sleep 0.5
+[ "$(t display -p -t "$cur" '#{@agent_state} #{@agent_since}')" = 'idle 1234' ] || fail "focus did not dim a finished agent, or moved its clock"
 kill -0 "$w" 2>/dev/null && { kill "$w"; fail "focus hook did not signal"; }
 listen
-t run-shell -C "$hook"; sleep 0.3   # idle now: no change, no signal
+t run-shell -C "$hook"; sleep 0.5   # idle now: no change, no signal
 kill -0 "$w" 2>/dev/null || fail "focus hook signalled without a change"
 kill "$w"; wait "$w" 2>/dev/null || true
-t set -pu -t "$cur" @agent_state
+t set -pu -t "$cur" @agent_state \; set -pu -t "$cur" @agent_since
+# seen leaves a waiting agent, and a gone pane, alone.
+"$here/agent-state" seen "$b" && [ "$(t display -p -t "$b" '#{@agent_state}')" = input ] || fail "seen touched a waiting agent"
+"$here/agent-state" seen %999 || fail "seen on a gone pane failed"
 
 # x: a working Copilot gets C-c once and reads idle, so a second x is refused
 # (another C-c would quit it); any other agent gets Escape.
