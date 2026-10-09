@@ -2,6 +2,8 @@
 # agent-state <input|running|done|idle|clear> [harness]
 # agent-state wait PANE [STATE...] [--timeout SECONDS]
 # agent-state prompt PANE TEXT
+# agent-state seen PANE
+# agent-state sweep
 #
 # Tags the calling tmux pane with an agent's state so the status line, window
 # tabs and the `agents` panel can show it. Harness-agnostic: anything that can
@@ -32,6 +34,16 @@
 #           running so a wait right after it does not read the last turn's
 #           done; 1 when PANE is no agent, or is waiting on you (TEXT would
 #           answer its question)
+#
+# Two more keep the record in one place; they exit 0 like the state verbs:
+#
+#   seen    a finished agent in PANE has been looked at: done becomes idle,
+#           @agent_since and the rest stay. The focus hook and the panel's
+#           jump call this
+#   sweep   clears every pane whose agent is gone without a word (a crash or
+#           kill -9 skips SessionEnd): the pane is back at a bare shell with
+#           nothing running under it. The panel runs this on open and every
+#           10s
 
 command -v tmux >/dev/null 2>&1 || exit 0
 here() { cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd; }
@@ -44,7 +56,26 @@ state_of() {
   [ -n "$pid" ]
 }
 
+# A bash wrapper like ai-loop also shows as `bash`, but it has children, so
+# it stays.
+stale() {
+  case "$1" in zsh|-zsh|bash|-bash|fish|sh|dash) ;; *) return 1 ;; esac
+  ! pgrep -P "$2" >/dev/null 2>&1
+}
+
 case "${1:-}" in
+  seen)
+    state_of "${2:-}" 2>/dev/null && [ "$s" = done ] || exit 0
+    tmux set -p -t "$pid" @agent_state idle \; wait-for -S agents 2>/dev/null
+    exit 0
+    ;;
+  sweep)
+    tmux list-panes -a -f '#{@agent_state}' -F '#{pane_id} #{pane_current_command} #{pane_pid}' 2>/dev/null |
+      while read -r id cmd ppid; do
+        stale "$cmd" "$ppid" && TMUX_PANE="$id" "$0" clear </dev/null
+      done
+    exit 0
+    ;;
   wait)
     shift; p="${1:-}"; shift || true
     [ -n "$p" ] || exit 1
@@ -118,7 +149,7 @@ case "$state" in input) note='▲|needs you' ;; done) note='✓|finished' ;; *) 
 how="$(tmux show -gv @agents_notify 2>/dev/null)"
 [ -n "$how" ] && [ "$how" != off ] || exit 0
 (
-  msg="${note%|*} $("$(here)/agents" --list 2>/dev/null | grep "^$p	" | cut -f3) ${note#*|}"
+  msg="${note%|*} $("$(here)/agents" --rows 2>/dev/null | awk -F'\t' -v p="$p" '$3 == p { print $7 }') ${note#*|}"
   seen=0
   while read -r c cp; do
     [ "$cp" = "$p" ] && { seen=1; continue; }

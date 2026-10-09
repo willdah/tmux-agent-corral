@@ -13,6 +13,12 @@
 #   agents --watch    pinned panel: stays open, Enter shows the agent and keeps focus, p toggles preview
 #   agents --list     the column headings, then the rows, tab-separated (pane id, display, full name)
 #   agents --list0    the same, NUL-separated, for the panel (fzf --read0)
+#   agents --rows     the data behind the rows, for scripts: one tab-separated
+#                     record per agent in panel order, no headings or colours:
+#                     rank (0 needs you, 1 finished, 2 idle, 3 working), since
+#                     (epoch), pane id, state, harness, project, name, session.
+#                     Grouped, a heading record leads each session: rank H,
+#                     its counts by rank in the state field, -<session> as id.
 #
 # Keys: ↵ jump · y approve · m message · n rename · x interrupt · d kill · g group · r refresh · q close
 #
@@ -37,6 +43,7 @@ die() { printf '\033[1;31mfail\033[0m %s\n' "$*" >&2; exit 1; }
 read -r AMBER BLUE GREEN TEXT DIM <<<"$(tmux display -p '#{@agent_c_input} #{@agent_c_running} #{@agent_c_done} #{@agent_c_text} #{@agent_c_dim}' 2>/dev/null || true)"
 AMBER="${AMBER:-214}" BLUE="${BLUE:-110}" GREEN="${GREEN:-108}" TEXT="${TEXT:-250}" DIM="${DIM:-247}"
 FAINT=238   # the group rule: structure, not text, so the border's grey
+bc=$BLUE tc=$TEXT dc=$DIM fc=$FAINT   # the indexes themselves, for fzf's --color
 B=$'\033[1m' UB=$'\033[22m'   # bold carries the footer's keys; NO_COLOR keeps it
 if [ -n "${NO_COLOR:-}" ]; then
   AMBER='' BLUE='' GREEN='' TEXT='' DIM='' FAINT='' R=''
@@ -99,29 +106,21 @@ project() {
   return "$rc"
 }
 
-# The agent is gone when its pane is back at a bare shell with nothing running
-# under it (a crash or kill -9 skips SessionEnd). A bash wrapper like ai-loop
-# also shows as `bash`, but it has children, so it stays.
-stale() {
-  case "$1" in zsh|-zsh|bash|-bash|fish|sh|dash) ;; *) return 1 ;; esac
-  ! pgrep -P "$2" >/dev/null 2>&1
-}
+US=$'\037'   # unit separator: unlike a tab, read keeps empty fields
 
-list() {
-  local US=$'\037'   # unit separator: unlike a tab, read keeps empty fields
-  local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{pane_current_command}${US}#{pane_pid}${US}#{@agent_dir}${US}#{@agent_project}${US}#{@agent_name}${US}#{pane_title}"
-  local rows host="${HOSTNAME:-$(hostname)}" now group fb keys=('-k1,1n' '-k2,2n')
-  now="$(date +%s)"
+# rows: the records behind the panel, sorted and, with @agents_group on,
+# grouped; see --rows for the fields. Its one write is the project cache
+# below. It clears nothing: agents that died without a word stay listed until
+# `agent-state sweep`, which the panel runs on open and every 10s.
+rows() {
+  local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{@agent_dir}${US}#{@agent_project}${US}#{@agent_name}${US}#{pane_title}"
+  local host="${HOSTNAME:-$(hostname)}" group fb keys=('-k1,1n' '-k2,2n')
   group="$(tmux show -gv @agents_group 2>/dev/null || true)"
   [ "$group" = on ] && keys+=('-k8,8')
   # Grouped, awk gathers each session's rows in the order its first (most
   # urgent) row came, behind a heading record: H, then the counts by rank.
   # tmux before 3.5 prints the separator as a literal \037; turn it back.
-  rows="$(tmux list-panes -a -f '#{@agent_state}' -F "$fmt" | sed "s/\\\\037/$US/g" | while IFS="$US" read -r id st since agent sess dir cmd pid pdir proj name title; do
-    if stale "$cmd" "$pid"; then
-      tmux set -pu -t "$id" @agent_state \; set -pu -t "$id" @agent_dir \; set -pu -t "$id" @agent_project 2>/dev/null || true
-      continue
-    fi
+  tmux list-panes -a -f '#{@agent_state}' -F "$fmt" | sed "s/\\\\037/$US/g" | while IFS="$US" read -r id st since agent sess dir pdir proj name title; do
     # git runs once per pane and directory; the project then stays on the
     # pane until agent-state clears it with the rest. Only a git answer is
     # kept, so a failure (safe.directory, a repo made later) does not stick.
@@ -150,9 +149,13 @@ list() {
       !($8 in r) { o[k++] = $8 }
       { c[$8, $1]++; r[$8] = r[$8] $0 "\n" }
       END { for (i = 0; i < k; i++) { s = o[i]
-        print "H", "", "", (c[s,0]+0) " " (c[s,1]+0) " " (c[s,2]+0) " " (c[s,3]+0), "", "", "", s
+        print "H", "", "-" s, (c[s,0]+0) " " (c[s,1]+0) " " (c[s,2]+0) " " (c[s,3]+0), "", "", "", s
         printf "%s", r[s] } }'
-  else cat; fi)"
+  else cat; fi
+}
+
+list() {
+  local rows now; rows="$(rows)"; now="$(date +%s)"
 
   # Width: fzf's columns inside its border, less 4 for padding, pointer and
   # gutter and one spare for the scrollbar. fzf reports 0 during its start
@@ -204,7 +207,7 @@ list() {
       n=$(( hw - cl - 3 ))
       [ "$n" -ge 2 ] || { counts='' cl=0 n=$(( hw - 3 )); }
       s="$sess"; [ "${#s}" -le "$n" ] || s="${s:0:n-1}…"
-      printf -- '-%s\t %s%s%s%s %s%s%s%s\t%s\n' "$sess" "$B" "$TEXT" "$s" "$UB$R" "$FAINT" "${bars:0:hw-${#s}-1-cl}" "$R" "$counts" "$sess"
+      printf -- '%s\t %s%s%s%s %s%s%s%s\t%s\n' "$id" "$B" "$TEXT" "$s" "$UB$R" "$FAINT" "${bars:0:hw-${#s}-1-cl}" "$R" "$counts" "$sess"
       continue
     fi
     case "$st" in
@@ -236,17 +239,15 @@ is_pane() { case "${1:-}" in %*) return 0 ;; esac; return 1; }
 # tmux draws only the end result. It then takes focus back: the agent is that
 # window's last pane. Where the panel can't follow (a zoomed or narrow window)
 # the agent keeps focus. Either way the focus hook may not fire on the agent,
-# so mark a finished one seen here.
+# so mark a finished one seen here, once the switch is drawn.
 jump() {
   is_pane "${1:-}" || return 0
   local go=(switch-client -t "$1" \; select-window -t "$1" \; select-pane -t "$1") dock
   [ "${2:-}" = stay ] || { tmux "${go[@]}"; return 0; }
   dock="$(tmux show -gv @agents_dock 2>/dev/null)" && go+=(\; select-pane -t "$dock")
-  if [ "$(tmux display -p -t "$1" '#{@agent_state}')" = done ]; then
-    go+=(\; set -p -t "$1" @agent_state idle \; wait-for -S agents)
-  fi
   "${self%/*}/agents-dock" follow "$(tmux display -p -t "$1" '#{window_id}')" "${go[@]}" ||
     { [ $? = 2 ] && tmux display-message "agents: the panel could not follow"; }
+  "${self%/*}/agent-state" seen "$1"
 }
 
 # Only an agent that is actually waiting gets keystrokes; anywhere else an
@@ -411,10 +412,11 @@ panel() {
   done <<<"$keys|"
 
   # Refresh through fzf's own HTTP port: at once when agent-state signals the
-  # agents channel, and every 10s for the ages and for agents that died
-  # without a word. Each loop ends on its first reload after fzf has gone.
+  # agents channel, and every 10s for the ages, after a sweep for agents that
+  # died without a word. Each loop ends on its first reload after fzf has gone.
+  local sweep="'${self%/*}/agent-state' sweep"
   local reload="curl -fs -XPOST localhost:\$FZF_PORT -d 'transform:$self --key reload'"
-  local tick="(while sleep 10 && $reload; do :; done) >/dev/null 2>&1 & (while tmux wait-for agents && $reload; do :; done) >/dev/null 2>&1 &"
+  local tick="(while sleep 10 && $sweep && $reload; do :; done) >/dev/null 2>&1 & (while tmux wait-for agents && $reload; do :; done) >/dev/null 2>&1 &"
 
   # While a field is open the action letters and ↑↓ type or stay put, so the
   # row being written to can't change underneath.
@@ -432,7 +434,7 @@ panel() {
   fzf </dev/null \
     --ansi --read0 --no-input --no-sort --layout=reverse --cycle \
     --delimiter=$'\t' --with-nth=2 --id-nth=1 --track --header-lines=1 \
-    --listen --bind "start:${start}reload-sync($self --list0)+execute-silent:$tick" \
+    --listen --bind "start:${start}execute-silent($sweep)+reload-sync($self --list0)+execute-silent:$tick" \
     --bind "load:transform($self --key first)+unbind(load)" \
     --bind "resize:transform($self --key reload)" \
     --border=rounded --border-label=' agent-corral ' --border-label-pos=3 \
@@ -442,10 +444,10 @@ panel() {
     --preview='case {1} in %*) tmux capture-pane -pe -J -t {1} -S -80 | awk "{l[NR]=\$0} NF{n=NR} END{for(i=1;i<=n;i++)print l[i]}" ;; esac' \
     --preview-window="$preview" \
     --bind="focus:transform-preview-label:$label" \
-    --color='fg:250,bg:-1,fg+:255,bg+:236,hl:110,hl+:110' \
-    --color='border:238,label:110,preview-border:238,preview-label:247,footer-border:238' \
-    --color='pointer:110,marker:110,gutter:-1,info:247,header:250' \
-    --color='prompt:110,query:255' \
+    --color="fg:$tc,bg:-1,fg+:255,bg+:236,hl:$bc,hl+:$bc" \
+    --color="border:$fc,label:$bc,preview-border:$fc,preview-label:$dc,footer-border:$fc" \
+    --color="pointer:$bc,marker:$bc,gutter:-1,info:$dc,header:$tc" \
+    --color="prompt:$bc,query:255" \
     --bind="enter:transform($self --key enter {1} {3})$close" \
     --bind="esc:transform($self --key esc)$close" \
     --bind="y:execute-silent($self --approve {1})+reload-sync($self --list0)" \
@@ -470,6 +472,7 @@ case "${1:-}" in
   # Every group heading gets a blank line above it, inside its own item, so
   # the gap before each group is no row j and k have to stop on.
   --list0)     list | awk '/^-[^\t]/ { sub(/\t/, "\t\037") } 1' | tr '\n\037' '\0\n' ;;
+  --rows)      rows | tr "$US" '\t' ;;
   --label)     label ;;
   --ping)      ping ;;
   --jump)      jump "${2:-}" "${3:-}" ;;

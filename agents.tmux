@@ -19,7 +19,7 @@ set-hook -g client-session-changed[40] 'if -F "#{@agents_dock}" "run-shell \"~/.
 # agents keep their ▲ until they are actually answered. pane-focus-in needs
 # focus events.
 set -g focus-events on
-set-hook -g pane-focus-in[40] 'if -F "#{==:#{@agent_state},done}" "set -p @agent_state idle ; wait-for -S agents"'
+set-hook -g pane-focus-in[40] 'if -F "#{==:#{@agent_state},done}" "run-shell -b \"~/.config/tmux/agents/agent-state seen #{pane_id}\""'
 
 # The docked panel's title shows whether it has focus; these tell it to look.
 set-hook -g pane-focus-in[41]  'if -F "#{@agents_dock}" "run-shell -b \"~/.config/tmux/agents/agents --ping\""'
