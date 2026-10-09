@@ -14,7 +14,7 @@
 #   agents --list     the column headings, then the rows, tab-separated (pane id, display, full name)
 #   agents --list0    the same, NUL-separated, for the panel (fzf --read0)
 #
-# Keys: ↵ jump · y approve · m message · n rename · x interrupt · g group · r refresh · q close
+# Keys: ↵ jump · y approve · m message · n rename · x interrupt · d kill · g group · r refresh · q close
 #
 # With @agents_group on (g toggles it), the rows sit under a heading per tmux
 # session, each in the usual order. The session holding the most urgent row
@@ -293,6 +293,13 @@ rename() {
   fi
 }
 
+# kill_pane PANE: closes the agent's pane, and its window or session with it
+# when it was the last. Fails when the pane is gone.
+kill_pane() {
+  is_pane "${1:-}" || return 0
+  tmux kill-pane -t "$1"
+}
+
 # rename_session SESSION NAME: prints the name tmux took (before 3.6 or so
 # it swaps : and . for _). A session can't go nameless, so an empty name fails, as do a taken
 # one and a gone session, with tmux's reason on stderr.
@@ -312,7 +319,9 @@ rename_session() {
 #   key m|n PANE            open the field, on an agent's row only; n also
 #                           on a group heading, to rename its session
 #   key message|rename SHOWN  the prompt, naming the agent, cut for the dock
-#   key enter PANE SHOWN    send or rename, then say in the footer how it went,
+#   key d PANE              ask, in the footer, before killing an agent's pane
+#   key kill SHOWN          that question, naming the agent, cut for the dock
+#   key enter PANE SHOWN    send, rename or kill, then say in the footer how it went,
 #                           put back by key restore 3s later; elsewhere, jump
 #   key esc                 leave the field, or close the panel
 #   key first               on opening grouped, start on the first agent, not its heading
@@ -326,12 +335,19 @@ key() {
     m:*|n:*)              is_pane "${2:-}" || case "$1:${2:-}" in (n:-?*) ;; (*) return 0 ;; esac
                           if [ "$1" = m ]; then printf '%s' "$AGENTS_M"; else printf '%s' "$AGENTS_N"; fi
                           return ;;
+    d:*)                  is_pane "${2:-}" || return 0
+                          printf '%s' "$AGENTS_D"; return ;;
+    kill:*)               local n="${2:-}"; [ "${#n}" -le 24 ] || n="${n:0:23}…"
+                          printf '%skill %s?%s  %s↵%s yes  %sesc%s no%s' "$TEXT" "$n" "$R" "$B$TEXT" "$UB$DIM" "$B$TEXT" "$UB$DIM" "$R"
+                          return ;;
     message:*|rename:*)   local n="${2:-}"; [ "${#n}" -le 24 ] || n="${n:0:23}…"
                           printf '%s %s › ' "${1/message/message to}" "$n"
                           return ;;
     'enter:message to '*) if [ -z "$FZF_QUERY" ]; then :
                           elif message "$2" "$FZF_QUERY" 2>/dev/null; then did="${GREEN}✓${R} sent to $TEXT$3"
                           else did="${AMBER}✗${R} not sent: $TEXT$3$R is gone"; fi ;;
+    'enter:kill'*)        if kill_pane "$2" 2>/dev/null; then did="${GREEN}✓${R} killed $TEXT$3"
+                          else did="${AMBER}✗${R} not killed: $TEXT$3$R is gone"; fi ;;
     'enter:rename '*)     local out
                           if [ "$FZF_QUERY" = "$3" ]; then :
                           elif ! is_pane "$2"; then
@@ -383,11 +399,11 @@ panel() {
     start="execute-silent(tmux set -p -t \$TMUX_PANE @agents_port \$FZF_PORT)+transform-border-label($self --label)+"
     enter="execute-silent($self --jump {1} stay)"
     preview='down,60%,follow,border-top,hidden'
-    keys='↵ jump|y approve|m msg|n name|x stop|p peek|q close'
+    keys='↵ jump|y approve|m msg|n name|x stop|d kill|p peek|q close'
   else
     enter="become($self --jump {1})"
     preview='down,65%,follow,border-top'
-    keys='↵ jump|y approve|m message|n rename|x interrupt|g group|p preview|q close'
+    keys='↵ jump|y approve|m message|n rename|x interrupt|d kill|g group|p preview|q close'
   fi
   local footer='' k
   while IFS= read -r -d '|' k; do
@@ -402,12 +418,13 @@ panel() {
 
   # While a field is open the action letters and ↑↓ type or stay put, so the
   # row being written to can't change underneath.
-  local lock='y,x,m,n,r,g,p,j,k,q,up,down'
+  local lock='y,x,m,n,d,r,g,p,j,k,q,up,down'
   local open="unbind($lock)+disable-search+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
   local close="+clear-query+enable-search+hide-input+change-prompt(> )+rebind($lock)+reload-sync($self --list0)"
   export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
     AGENTS_M="$open+change-query()+transform-prompt($self --key message {3})" \
-    AGENTS_N="$open+transform-query(printf %s {3})+transform-prompt($self --key rename {3})"
+    AGENTS_N="$open+transform-query(printf %s {3})+transform-prompt($self --key rename {3})" \
+    AGENTS_D="unbind($lock)+disable-search+change-prompt(kill › )+transform-footer($self --key kill {3})"
 
   local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
 
@@ -435,6 +452,7 @@ panel() {
     --bind="x:execute-silent($self --interrupt {1})" \
     --bind="m:transform($self --key m {1})" \
     --bind="n:transform($self --key n {1})" \
+    --bind="d:transform($self --key d {1})" \
     --bind="r:reload-sync($self --list0)" \
     --bind="g:execute-silent($self --group)+reload-sync($self --list0)" \
     --bind="p:toggle-preview+transform-preview-label:$label" \
