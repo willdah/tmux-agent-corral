@@ -98,6 +98,7 @@ Inside the panel:
 | `m` | type a message to it, right in the panel (↵ sends, esc cancels) |
 | `n` | give it a name, starting from the one it shows (empty resets to the agent's own title) |
 | `x` | interrupt: sends Escape (C-c to Copilot), and only to an agent that is working |
+| `d` | kill its pane, once you confirm with ↵ (esc cancels); the last pane takes its window, the last window its session |
 | `g` | group by tmux session (the session with the most urgent agent first, each heading counting its agents by state); not in the docked panel's key hints, but works there |
 | `p` | toggle the live preview |
 | `r` | refresh |

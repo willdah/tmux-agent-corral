@@ -128,7 +128,7 @@ done < <(FZF_COLUMNS=40 "$here/agents" --list)
 # full name, the list's hidden third field; ↵ on it untouched must not freeze
 # the title as a name.
 k() { FZF_PROMPT="$1" FZF_QUERY="${2:-}" AGENTS_ENTER=jump AGENTS_FOOTER=keys \
-  AGENTS_M=open-m AGENTS_N=open-n "$here/agents" --key "${@:3}"; }
+  AGENTS_M=open-m AGENTS_N=open-n AGENTS_D=open-d "$here/agents" --key "${@:3}"; }
 shown="$("$here/agents" --list | grep "^$b" | cut -f3)"; [ "$shown" = "Fix login" ] || fail "hidden name field: $shown"
 [ "$(k '> ' '' m "$b")" = open-m ] && [ "$(k '> ' '' n "$b")" = open-n ] || fail "m/n did not open on an agent"
 [ -z "$(k '> ' '' m -work)" ] || fail "m opened on a heading"
@@ -158,6 +158,15 @@ sleep 0.3; t capture-pane -p -t "$mp" | grep -qF 'hi; -x )' || fail "message not
 t kill-pane -t "$mp"
 k 'message to cat › ' hi enter "$mp" cat | grep -q 'not sent: .*cat.* is gone' || fail "message to a gone pane claimed success"
 k 'rename cat › ' x enter "$mp" cat | grep -q 'not renamed' || fail "rename of a gone pane claimed success"
+# d asks in the footer, on an agent's row only; ↵ kills the pane, esc keeps it.
+[ "$(k '> ' '' d "$b")" = open-d ] && [ -z "$(k '> ' '' d -work)" ] || fail "d opened on a heading, or not on an agent"
+k '> ' '' kill "$(printf '%030d' 0)" | grep -q 'kill 0\{23\}…?' || fail "kill question"
+alive() { t list-panes -a -F '#{pane_id}' | grep -qx "$1"; }
+kp="$(t new-window -d -P -F '#{pane_id}' -t side: 'sleep 600')"
+[ "$(k 'kill › ' '' esc)" = change-footer:keys ] && alive "$kp" || fail "esc on kill closed the panel or the pane"
+k 'kill › ' '' enter "$kp" sleeper | grep -q 'killed .*sleeper' || fail "kill footer"
+alive "$kp" && fail "pane not killed"
+k 'kill › ' '' enter "$kp" sleeper | grep -q 'not killed: .*sleeper.* is gone' || fail "kill of a gone pane claimed success"
 [ "$(k '> ' '' enter "$b")" = jump ] && [ "$(k '> ' '' esc)" = abort ] || fail "↵/esc outside a field"
 [ "$(k 'message to X › ' '' esc)" = change-footer:keys ] || fail "esc in a field closed the panel"
 [ "$(k '> ' '' reload)" = "reload-sync($here/agents --list0)" ] || fail "reload outside a field"
