@@ -12,6 +12,7 @@ cat >"$conf" <<CONF
 set -g base-index 1
 setw -g pane-base-index 1
 source-file "$here/agents.tmux"
+set -g @agents_notify off   # its list runs would sweep stale panes early; the notify checks turn it on
 set -ag status-right "#{E:@agents_status}"
 setw -ag window-status-format "#{E:@agent_tab}"
 CONF
@@ -146,7 +147,7 @@ k 'rename cat › ' x enter "$mp" cat | grep -q 'not renamed' || fail "rename of
 [ "$(k 'message to X › ' '' esc)" = change-footer:keys ] || fail "esc in a field closed the panel"
 [ "$(k '> ' '' reload)" = "reload-sync($here/agents --list)" ] || fail "reload outside a field"
 [ -z "$(k 'rename X › ' '' reload)$(k 'rename X › ' '' restore)" ] || fail "reload/restore touched an open field"
-[ -z "$(t display -p -t "$shell" '#{@agent_state}#{@agent_dir}#{@agent_project}')" ] || fail "stale shell pane kept its state"
+[ -z "$(t display -p -t "$shell" '#{@agent_state}#{@agent_dir}#{@agent_project}')" ] || fail "stale shell pane kept its state: $(t display -p -t "$shell" "#{@agent_state}|#{@agent_dir}|#{@agent_project}|#{pane_current_command}|#{pane_pid}")"
 # Other harnesses: the name shows, the title they give themselves doesn't.
 TMUX_PANE=$c "$here/agent-state" running copilot </dev/null
 t select-pane -t "$c" -T 'GitHub Copilot'
@@ -332,6 +333,69 @@ TMUX_PANE=$ec "$here/agent-state" running </dev/null
 t capture-pane -p -t "$ec" | grep -qF '^[' || fail "x sent no Escape"
 for q in $cp $ec; do t kill-pane -t "$q"; done
 grep -q sessionStart "$here/copilot-hooks.json" && fail "copilot sessionStart hook is back: it fires after the first prompt"
+
+# wait: returns once the pane is in a wanted state (input or done when none
+# is named), 1 on the timeout or a pane that is gone.
+TMUX_PANE=$a "$here/agent-state" running </dev/null
+"$here/agent-state" wait "$a" done & wp=$!; sleep 0.3
+kill -0 "$wp" 2>/dev/null || fail "wait returned before the state changed"
+TMUX_PANE=$a "$here/agent-state" done </dev/null
+for _ in $(seq 20); do kill -0 "$wp" 2>/dev/null || break; sleep 0.1; done
+if wait "$wp"; then :; else fail "wait did not return 0 on done"; fi
+"$here/agent-state" wait "$b" || fail "wait with no state did not take input"
+"$here/agent-state" wait "$a" input --timeout 1 && fail "wait did not time out"
+"$here/agent-state" wait %999 done && fail "wait did not fail on a missing pane"
+"$here/agent-state" wait "$a" done --timeout x && fail "wait took a bad timeout"
+# A caller reading wait's output is not held until the timeout.
+TMUX_PANE=$a "$here/agent-state" running </dev/null
+SECONDS=0; out="$("$here/agent-state" wait "$a" running --timeout 5)"
+[ "$SECONDS" -lt 3 ] && [ -z "$out" ] || fail "wait held its output open for the timer"
+# An agent that ends ends the wait, unless clear is what it waits for.
+"$here/agent-state" wait "$a" done & wp=$!; sleep 0.3
+TMUX_PANE=$a "$here/agent-state" clear </dev/null; sleep 0.3
+kill -0 "$wp" 2>/dev/null && { kill "$wp"; fail "wait outlived its agent"; }
+"$here/agent-state" wait "$a" clear || fail "wait clear on a gone agent"
+TMUX_PANE=$a "$here/agent-state" running </dev/null
+# prompt: types into a working agent; a pane that is no agent, or one waiting
+# on you, is refused (the text would answer its question).
+pc="$(t new-window -d -P -F '#{pane_id}' -t side: cat)"
+"$here/agent-state" prompt "$pc" hello && fail "prompt accepted an untagged pane"
+TMUX_PANE=$pc "$here/agent-state" input </dev/null
+"$here/agent-state" prompt "$pc" hello && fail "prompt typed into a waiting agent"
+TMUX_PANE=$pc "$here/agent-state" running </dev/null
+"$here/agent-state" prompt "$pc" hello || fail "prompt refused a working agent"
+sleep 0.3; t capture-pane -p -t "$pc" | grep -q '^hello$' || fail "prompt text not typed"
+# A finished agent reads running once prompted, so a wait right after does
+# not return on the old done; any tmux target works, and the name survives.
+TMUX_PANE=$pc "$here/agent-state" done pi </dev/null
+"$here/agent-state" prompt "$(t display -p -t "$pc" '#{session_name}:#{window_index}.#{pane_index}')" again || fail "prompt by target"
+sleep 0.3; t capture-pane -p -t "$pc" | grep -q '^again$' || fail "prompt by target not typed"
+[ "$(t display -p -t "$pc" '#{@agent_state} #{@agent}')" = 'running pi' ] || fail "prompt did not mark the agent running"
+"$here/agent-state" wait "$pc" done --timeout 1 && fail "wait after prompt returned on the old done"
+t kill-pane -t "$pc"
+# notify: input and done call the notifier with the agent's name, unless a
+# client is looking at that pane; running and idle never do; off is quiet.
+nf="$tmp/notes"; printf '#!/bin/sh\necho "$1" >>"%s"\n' "$nf" >"$tmp/notify"; chmod +x "$tmp/notify"
+t set -g @agents_notify "$tmp/notify"
+{ echo 'refresh-client -C 160x40'; sleep 30; } | t -C attach -t work:1 >/dev/null & nc=$!
+for _ in $(seq 50); do t list-clients | grep -q . && break; sleep 0.1; done
+t select-pane -t "$a"
+"$here/agents" --rename "$d" 'Side quest #{pane_id}'
+TMUX_PANE=$d "$here/agent-state" running </dev/null; TMUX_PANE=$d "$here/agent-state" input </dev/null
+TMUX_PANE=$a "$here/agent-state" done </dev/null   # the client is on this one
+TMUX_PANE=$d "$here/agent-state" running </dev/null; TMUX_PANE=$d "$here/agent-state" idle </dev/null
+TMUX_PANE=$d "$here/agent-state" done </dev/null; sleep 1
+[ "$(LC_ALL=C sort "$nf")" = "$(printf '▲ Side quest #{pane_id} needs you\n✓ Side quest #{pane_id} finished\n' | LC_ALL=C sort)" ] || fail "notify: $(cat "$nf")"
+t set -g @agents_notify off
+TMUX_PANE=$d "$here/agent-state" input </dev/null; sleep 0.3
+[ "$(wc -l <"$nf" | tr -d ' ')" = 2 ] || fail "notify off still notified"
+t set -g @agents_notify tmux
+TMUX_PANE=$d "$here/agent-state" done </dev/null || fail "notify tmux failed"
+grep -q '^set -g @agents_notify tmux' "$here/agents.tmux" || fail "agents.tmux default is not tmux"
+t set -g @agents_notify off
+kill "$nc" 2>/dev/null || true
+"$here/agents" --rename "$d"
+TMUX_PANE=$a "$here/agent-state" running </dev/null
 
 # No agents left: the panel says so instead of going blank.
 for p in $a $b $d; do TMUX_PANE=$p "$here/agent-state" clear </dev/null; done

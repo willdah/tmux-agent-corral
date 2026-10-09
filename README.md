@@ -121,6 +121,8 @@ Set any of these after the `source-file` line. Values are 256-colour indexes.
 
 `set -g @agents_group on` starts the panel grouped by tmux session (`g` toggles it).
 
+`@agents_notify` says how you hear that an agent needs you or finished while no client is looking at its pane: `tmux` (default: a message in every client looking elsewhere), `os` (a desktop notification, through `osascript` or `notify-send`), `off`, or a command of your own, run with the message (`▲ Fix login needs you`) as its one argument.
+
 `NO_COLOR=1` turns the panel's colours off.
 
 The hooks are registered at index `[40]` (`session-window-changed`, `client-session-changed`, `pane-focus-in`), so they sit alongside your own. `agents.tmux` also turns on `focus-events`.
@@ -134,6 +136,23 @@ The protocol is one script. `agent-state <input|running|done|idle|clear> [name]`
 ```
 
 `copilot-hooks.json`, `pi-agent-state.ts` and `install-claude-hooks` show how the built-in ones do it.
+
+### Scripting
+
+Two more verbs drive agents from a script, a hook, or another agent:
+
+```sh
+agent-state wait PANE [STATE...] [--timeout SECONDS]   # block until PANE is in one of the states (default: input done)
+agent-state prompt PANE TEXT                           # type TEXT into the agent in PANE and press Enter
+```
+
+`wait` exits 0 when the state is reached (`clear` means the agent has ended), 1 on the timeout, when the pane is gone, or when the agent ends first. `prompt` exits 1 when `PANE` is not an agent or is waiting on you, so a prompt never lands in a permission dialog; answer it first (`y` in the panel, or `tmux send-keys -t PANE Enter`). It marks the agent working as it sends, so a `wait` right after it waits for the new turn, not the last one. Together they hand work to a peer and wait for it:
+
+```sh
+agent-state prompt %7 "run the tests and fix what breaks" && agent-state wait %7
+```
+
+Pane ids are the first column of `agents --list`.
 
 ## Known limits
 

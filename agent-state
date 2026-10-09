@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # agent-state <input|running|done|idle|clear> [harness]
+# agent-state wait PANE [STATE...] [--timeout SECONDS]
+# agent-state prompt PANE TEXT
 #
 # Tags the calling tmux pane with an agent's state so the status line, window
 # tabs and the `agents` panel can show it. Harness-agnostic: anything that can
@@ -15,12 +17,72 @@
 #                 the panel's cached project lookup; cleared here too
 #
 # Every change signals the tmux wait-for channel `agents`, which an open
-# panel waits on to refresh at once.
+# panel waits on to refresh at once. `input` and `done` also tell you, unless
+# a client is looking at the pane; @agents_notify says how: `tmux` (a message
+# in each client looking elsewhere), `os` (a desktop notification), `off`, or
+# a command, run with the message as its one argument.
 #
-# Always exits 0: a hook that fails must never get in the agent's way.
+# The state verbs always exit 0: a hook that fails must never get in the
+# agent's way. The two below are for scripts and other agents, and exit 1:
+#
+#   wait    returns once PANE is in one of the STATEs (default: input done;
+#           clear: the agent is gone); 1 on the timeout, when the pane is
+#           gone, or when the agent ends without getting there
+#   prompt  types TEXT into the agent in PANE and presses Enter, and marks it
+#           running so a wait right after it does not read the last turn's
+#           done; 1 when PANE is no agent, or is waiting on you (TEXT would
+#           answer its question)
+
+command -v tmux >/dev/null 2>&1 || exit 0
+here() { cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd; }
+
+# state_of PANE: sets pid to the pane's id and s to its state; fails when the
+# pane is gone (display -p exits 0 with an empty id for a target it can't find).
+state_of() {
+  local r; r="$(tmux display -p -t "$1" '#{pane_id} #{@agent_state}' 2>/dev/null)" || return 1
+  pid="${r%% *}"; s="${r#* }"
+  [ -n "$pid" ]
+}
+
+case "${1:-}" in
+  wait)
+    shift; p="${1:-}"; shift || true
+    [ -n "$p" ] || exit 1
+    states='' limit=''
+    while [ $# -gt 0 ]; do
+      case "$1" in --timeout) limit="${2:-}"; shift ;; *) states="$states $1" ;; esac; shift
+    done
+    [ -n "$states" ] || states=' input done'
+    if [ -n "$limit" ]; then
+      case "$limit" in ''|*[!0-9]*) exit 1 ;; esac
+      # The deadline wakes the loop through the channel it waits on. The
+      # timer keeps none of our fds, or a caller reading our output would
+      # wait for it too.
+      until=$(( $(date +%s) + limit ))
+      (sleep "$limit"; tmux wait-for -S agents) >/dev/null 2>&1 </dev/null & timer=$!
+      trap 'kill $timer 2>/dev/null' EXIT
+    fi
+    while :; do
+      state_of "$p" || exit 1
+      case "$states " in *" ${s:-clear} "*) exit 0 ;; esac
+      [ -n "$s" ] || exit 1   # no agent there (any more)
+      [ -n "$limit" ] && [ "$(date +%s)" -ge "$until" ] && exit 1
+      tmux wait-for agents 2>/dev/null || exit 1
+    done
+    ;;
+  prompt)
+    p="${2:-}" text="${3:-}"
+    [ -n "$p" ] && [ -n "$text" ] || exit 1
+    state_of "$p" || exit 1
+    [ -n "$s" ] || { echo "agents: $p is not an agent" >&2; exit 1; }
+    [ "$s" = input ] && { echo "agents: $p is waiting on you; answer it first" >&2; exit 1; }
+    "$(here)/agents" --message "$pid" "$text" || exit 1
+    TMUX_PANE="$pid" "$0" running "$(tmux display -p -t "$pid" '#{@agent}')" </dev/null
+    exit 0
+    ;;
+esac
 
 [ -n "${TMUX_PANE:-}" ] || exit 0
-command -v tmux >/dev/null 2>&1 || exit 0
 [ -t 0 ] || cat >/dev/null 2>&1   # drain hook JSON on stdin so the writer never blocks
 
 state="${1:-}"
@@ -48,4 +110,30 @@ tmux wait-for -S agents 2>/dev/null
 tmux list-clients -F '#{client_name}' 2>/dev/null | while read -r c; do
   tmux refresh-client -S -t "$c" 2>/dev/null
 done
+
+# Needs you, or finished: tell the clients looking elsewhere, or you, when
+# none is looking at the pane. In the background, holding none of the hook's
+# fds: the agent's name comes from the panel's list, which is not instant.
+case "$state" in input) note='▲|needs you' ;; done) note='✓|finished' ;; *) exit 0 ;; esac
+how="$(tmux show -gv @agents_notify 2>/dev/null)"
+[ -n "$how" ] && [ "$how" != off ] || exit 0
+(
+  msg="${note%|*} $("$(here)/agents" --list 2>/dev/null | grep "^$p	" | cut -f3) ${note#*|}"
+  seen=0
+  while read -r c cp; do
+    [ "$cp" = "$p" ] && { seen=1; continue; }
+    # A title is the agent's to set, and a format to display-message.
+    [ "$how" = tmux ] && tmux display-message -t "$c" "${msg//#/##}"
+  done <<<"$(tmux list-clients -F '#{client_name} #{pane_id}')"
+  [ "$seen" = 0 ] || exit 0
+  case "$how" in
+    tmux) ;;
+    os) case "$(uname -s)" in
+          Darwin) q="${msg//\\/\\\\}"; q="${q//\"/\\\"}"
+                  osascript -e "display notification \"$q\" with title \"agents\"" ;;
+          *) command -v notify-send >/dev/null 2>&1 && notify-send agents "$msg" ;;
+        esac ;;
+    *) "$how" "$msg" ;;
+  esac
+) >/dev/null 2>&1 </dev/null &
 exit 0

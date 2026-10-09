@@ -37,6 +37,12 @@ set -g @agent_c_dim     247
 # g in the panel toggles it.
 set -g @agents_group off
 
+# How to tell you that an agent needs you or finished, when no client is
+# looking at its pane: tmux (a message in each client looking elsewhere), os
+# (a desktop notification: osascript, or notify-send), off, or a command to
+# run with the message as its argument.
+set -g @agents_notify tmux
+
 # Formats for your status line and tabs. Idle agents stay quiet.
 #   @agents_status  every agent in every session, waiting first: ▲▲●✓
 #   @agent_tab      the marks of one window's panes, with a leading space
