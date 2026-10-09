@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.7.0](https://github.com/willdah/tmux-agent-corral/compare/0.6.2...0.7.0) - 2026-10-09
+
+### Added
+
+- notify when a background agent needs you, and wait/prompt verbs for scripts
+- a message or desktop notification when a background agent needs you
+- agent-state prompt hands text to an agent from a script or another agent
+- agent-state wait blocks until an agent needs you or finishes
+
 ## [0.6.2](https://github.com/willdah/tmux-agent-corral/compare/0.6.1...0.6.2) - 2026-10-07
 
 ### Fixed
