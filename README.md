@@ -135,6 +135,18 @@ The protocol is one script. `agent-state <input|running|done|idle|clear> [name]`
 
 `copilot-hooks.json`, `pi-agent-state.ts` and `install-claude-hooks` show how the built-in ones do it.
 
+### Scripting
+
+One more verb drives agents from a script, a hook, or another agent:
+
+```sh
+agent-state wait PANE [STATE...] [--timeout SECONDS]   # block until PANE is in one of the states (default: input done)
+```
+
+`wait` exits 0 when the state is reached (`clear` means the agent has ended), 1 on the timeout, when the pane is gone, or when the agent ends first.
+
+Pane ids are the first column of `agents --list`.
+
 ## Known limits
 
 > [!WARNING]

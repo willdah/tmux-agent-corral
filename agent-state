@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # agent-state <input|running|done|idle|clear> [harness]
+# agent-state wait PANE [STATE...] [--timeout SECONDS]
 #
 # Tags the calling tmux pane with an agent's state so the status line, window
 # tabs and the `agents` panel can show it. Harness-agnostic: anything that can
@@ -17,10 +18,52 @@
 # Every change signals the tmux wait-for channel `agents`, which an open
 # panel waits on to refresh at once.
 #
-# Always exits 0: a hook that fails must never get in the agent's way.
+# The state verbs always exit 0: a hook that fails must never get in the
+# agent's way. wait is for scripts and other agents, and exits 1:
+#
+#   wait    returns once PANE is in one of the STATEs (default: input done;
+#           clear: the agent is gone); 1 on the timeout, when the pane is
+#           gone, or when the agent ends without getting there
+
+command -v tmux >/dev/null 2>&1 || exit 0
+
+# state_of PANE: sets pid to the pane's id and s to its state; fails when the
+# pane is gone (display -p exits 0 with an empty id for a target it can't find).
+state_of() {
+  local r; r="$(tmux display -p -t "$1" '#{pane_id} #{@agent_state}' 2>/dev/null)" || return 1
+  pid="${r%% *}"; s="${r#* }"
+  [ -n "$pid" ]
+}
+
+case "${1:-}" in
+  wait)
+    shift; p="${1:-}"; shift || true
+    [ -n "$p" ] || exit 1
+    states='' limit=''
+    while [ $# -gt 0 ]; do
+      case "$1" in --timeout) limit="${2:-}"; shift ;; *) states="$states $1" ;; esac; shift
+    done
+    [ -n "$states" ] || states=' input done'
+    if [ -n "$limit" ]; then
+      case "$limit" in ''|*[!0-9]*) exit 1 ;; esac
+      # The deadline wakes the loop through the channel it waits on. The
+      # timer keeps none of our fds, or a caller reading our output would
+      # wait for it too.
+      until=$(( $(date +%s) + limit ))
+      (sleep "$limit"; tmux wait-for -S agents) >/dev/null 2>&1 </dev/null & timer=$!
+      trap 'kill $timer 2>/dev/null' EXIT
+    fi
+    while :; do
+      state_of "$p" || exit 1
+      case "$states " in *" ${s:-clear} "*) exit 0 ;; esac
+      [ -n "$s" ] || exit 1   # no agent there (any more)
+      [ -n "$limit" ] && [ "$(date +%s)" -ge "$until" ] && exit 1
+      tmux wait-for agents 2>/dev/null || exit 1
+    done
+    ;;
+esac
 
 [ -n "${TMUX_PANE:-}" ] || exit 0
-command -v tmux >/dev/null 2>&1 || exit 0
 [ -t 0 ] || cat >/dev/null 2>&1   # drain hook JSON on stdin so the writer never blocks
 
 state="${1:-}"
