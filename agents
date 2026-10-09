@@ -20,7 +20,8 @@
 # session, each in the usual order. The session holding the most urgent row
 # comes first (ties by name), so what needs you still tops the panel. A
 # heading names the session and counts its agents by state. Its id is
-# -<session>: unique for --track, and no pane, so actions skip it.
+# -<session>: unique for --track, and no pane, so actions skip it, all but n,
+# which renames the session.
 #
 # Columns fit the panel's width (fzf's $FZF_COLUMNS), headings included.
 # NO_COLOR turns the colours off.
@@ -203,7 +204,7 @@ list() {
       n=$(( hw - cl - 3 ))
       [ "$n" -ge 2 ] || { counts='' cl=0 n=$(( hw - 3 )); }
       s="$sess"; [ "${#s}" -le "$n" ] || s="${s:0:n-1}…"
-      printf -- '-%s\t %s%s%s%s %s%s%s%s\n' "$sess" "$B" "$TEXT" "$s" "$UB$R" "$FAINT" "${bars:0:hw-${#s}-1-cl}" "$R" "$counts"
+      printf -- '-%s\t %s%s%s%s %s%s%s%s\t%s\n' "$sess" "$B" "$TEXT" "$s" "$UB$R" "$FAINT" "${bars:0:hw-${#s}-1-cl}" "$R" "$counts" "$sess"
       continue
     fi
     case "$st" in
@@ -292,10 +293,24 @@ rename() {
   fi
 }
 
+# rename_session SESSION NAME: prints the name tmux took (before 3.6 or so
+# it swaps : and . for _). A session can't go nameless, so an empty name fails, as do a taken
+# one and a gone session, with tmux's reason on stderr.
+rename_session() {
+  [ -n "${2:-}" ] || { echo 'no name' >&2; return 1; }
+  local id
+  # display prints nothing, and succeeds, for a gone session; an empty -t
+  # would rename the current one.
+  id="$(tmux display -p -t "=$1:" '#{session_id}' 2>/dev/null)"
+  [ -n "$id" ] || { echo "can't find session: $1" >&2; return 1; }
+  tmux rename-session -t "$id" -- "$2" && tmux display -p -t "$id:" '#{session_name}'
+}
+
 # m and n turn fzf's own input line into a field for the selected agent, so
 # the panel never leaves the screen. fzf runs key for each step ($AGENTS_* set
 # by panel):
-#   key m|n PANE            open the field, on an agent's row only
+#   key m|n PANE            open the field, on an agent's row only; n also
+#                           on a group heading, to rename its session
 #   key message|rename SHOWN  the prompt, naming the agent, cut for the dock
 #   key enter PANE SHOWN    send or rename, then say in the footer how it went,
 #                           put back by key restore 3s later; elsewhere, jump
@@ -308,7 +323,7 @@ rename() {
 key() {
   local did=''
   case "$1:$FZF_PROMPT" in
-    m:*|n:*)              is_pane "${2:-}" || return 0
+    m:*|n:*)              is_pane "${2:-}" || case "$1:${2:-}" in (n:-?*) ;; (*) return 0 ;; esac
                           if [ "$1" = m ]; then printf '%s' "$AGENTS_M"; else printf '%s' "$AGENTS_N"; fi
                           return ;;
     message:*|rename:*)   local n="${2:-}"; [ "${#n}" -le 24 ] || n="${n:0:23}…"
@@ -317,7 +332,12 @@ key() {
     'enter:message to '*) if [ -z "$FZF_QUERY" ]; then :
                           elif message "$2" "$FZF_QUERY" 2>/dev/null; then did="${GREEN}✓${R} sent to $TEXT$3"
                           else did="${AMBER}✗${R} not sent: $TEXT$3$R is gone"; fi ;;
-    'enter:rename '*)     if [ "$FZF_QUERY" = "$3" ]; then :
+    'enter:rename '*)     local out
+                          if [ "$FZF_QUERY" = "$3" ]; then :
+                          elif ! is_pane "$2"; then
+                            if [ -z "$FZF_QUERY" ]; then :
+                            elif out="$(rename_session "$3" "$FZF_QUERY" 2>&1)"; then did="${GREEN}✓${R} renamed to $TEXT$out"
+                            else did="${AMBER}✗${R} not renamed: $TEXT$out"; fi
                           elif ! rename "$2" "$FZF_QUERY" 2>/dev/null; then did="${AMBER}✗${R} not renamed: $TEXT$3$R is gone"
                           elif [ -n "$FZF_QUERY" ]; then did="${GREEN}✓${R} renamed to $TEXT$FZF_QUERY"
                           else did="${GREEN}✓${R} name reset"; fi ;;
