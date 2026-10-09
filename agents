@@ -109,9 +109,9 @@ project() {
 US=$'\037'   # unit separator: unlike a tab, read keeps empty fields
 
 # rows: the records behind the panel, sorted and, with @agents_group on,
-# grouped; see --rows for the fields. Reads only: agents that died without a
-# word are cleared by `agent-state sweep`, which the panel runs on open and
-# every 10s.
+# grouped; see --rows for the fields. Its one write is the project cache
+# below. It clears nothing: agents that died without a word stay listed until
+# `agent-state sweep`, which the panel runs on open and every 10s.
 rows() {
   local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{@agent_dir}${US}#{@agent_project}${US}#{@agent_name}${US}#{pane_title}"
   local host="${HOSTNAME:-$(hostname)}" group fb keys=('-k1,1n' '-k2,2n')

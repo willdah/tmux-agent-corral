@@ -130,7 +130,7 @@ The hooks are registered at index `[40]` (`session-window-changed`, `client-sess
 
 ## Other agents
 
-The protocol is one script. `agent-state <input|running|done|idle|clear> [name]` tags the pane it runs in (`$TMUX_PANE`) with `@agent_state`, `@agent_since` and `@agent`. The state lives in pane options, so it disappears with the pane. Call it from any harness's hooks or a wrapper:
+The protocol is one script. `agent-state <input|running|done|idle|clear> [harness]` tags the pane it runs in (`$TMUX_PANE`) with `@agent_state`, `@agent_since` and `@agent`. The state lives in pane options, so it disappears with the pane. Call it from any harness's hooks or a wrapper:
 
 ```sh
 ~/.config/tmux/agents/agent-state running codex
@@ -153,7 +153,7 @@ agent-state prompt PANE TEXT                           # type TEXT into the agen
 agent-state prompt %7 "run the tests and fix what breaks" && agent-state wait %7
 ```
 
-To find a pane, `agents --rows` prints one tab-separated record per agent in the panel's order: rank (0 needs you, 1 finished, 2 idle, 3 working), since (epoch), pane id, state, harness, project, name, session. Two housekeeping verbs round out the record: `agent-state seen PANE` dims a finished agent to idle (the focus hook and the panel's jump call it), and `agent-state sweep` clears every pane whose agent died without saying so (the panel runs it on open and every 10s).
+To find a pane, `agents --rows` prints one tab-separated record per agent in the panel's order: rank (0 needs you, 1 finished, 2 idle, 3 working), since (epoch), pane id, state, harness, project, name, session. With grouping on, a heading record leads each session: rank `H`, its counts by rank in the state field, `-<session>` as the id. Two housekeeping verbs round out the record: `agent-state seen PANE` dims a finished agent to idle (the focus hook and the panel's jump call it), and `agent-state sweep` clears every pane whose agent died without saying so (the panel runs it on open and every 10s).
 
 ```sh
 agents --rows | awk -F'\t' '$4 == "input" { print $3 }'   # every pane waiting on you

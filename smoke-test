@@ -54,15 +54,22 @@ TMUX_PANE=$a "$here/agent-state" idle </dev/null; sleep 0.3
 kill -0 "$w" 2>/dev/null && { kill "$w"; fail "agent-state did not signal the agents channel"; }
 TMUX_PANE=$a "$here/agent-state" running </dev/null
 
-# sweep clears every field of a pane back at a bare shell, and only those.
+# The list only reads: a stale pane stays until sweep clears every field of
+# it, and only of panes back at a bare shell. A shell with something running
+# under it (a wrapper) is a live agent.
+"$here/agents" --rows | grep -q "	$shell	" || fail "rows hid a stale pane before any sweep"
+wrap="$(t new-window -d -P -F '#{pane_id}' -t side: "bash -c 'sleep 600'")"
+TMUX_PANE=$wrap "$here/agent-state" running </dev/null
 t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y \; set -p -t "$shell" @agent_name z
 "$here/agent-state" sweep
 f='#{@agent}#{@agent_state}#{@agent_since}#{@agent_name}#{@agent_dir}#{@agent_project}'
 [ -z "$(t display -p -t "$shell" "$f")" ] || fail "sweep left state on the stale shell pane: $(t display -p -t "$shell" "$f|#{pane_current_command}|#{pane_pid}")"
 [ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "sweep cleared a live agent"
+[ "$(t display -p -t "$wrap" '#{@agent_state}')" = running ] || fail "sweep cleared a wrapper shell with a child"
+t kill-pane -t "$wrap"
 # --rows: eight tab-separated fields per agent, rank and since leading.
 r="$("$here/agents" --rows | grep "	$b	")"
-[ "$(printf '%s' "$r" | awk -F'\t' '{print NF, $1, $3, $4, $8}')" = "8 0 $b input work" ] || fail "rows record: $r"
+[ "$(printf '%s' "$r" | awk -F'\t' '{print NF, $1, $2, $3, $4, $5, $6, $7, $8}')" = "8 0 $since $b input claude smokeproj work work" ] || fail "rows record: $r"
 order="$("$here/agents" --rows | cut -f3 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
 # Grouped: a heading per session, the session with the most urgent row first
@@ -72,6 +79,8 @@ t set -g @agents_group off; "$here/agents" --group
 [ "$(t show -gv @agents_group)" = on ] || fail "--group did not turn grouping on"
 order="$("$here/agents" --rows | cut -f3 | tr '\n' ' ')"
 case "$order" in "-work $b $c $a -side $d "|"-side $d -work $b $c $a ") ;; *) fail "grouped order: $order" ;; esac
+r="$("$here/agents" --rows | awk -F'\t' '$3 == "-work" { print NF, $1, $4, $8 }')"
+[ "$r" = '8 H 1 1 0 1 work' ] || fail "heading record: $r"
 h="$(NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list | grep '^-work' | cut -f2)"
 [ "$h" = $' \e[1mwork\e[22m ──────────────────── ▲1 ✓1 ●1' ] || fail "group heading: $h"   # bold stays under NO_COLOR
 h="$(NO_COLOR=1 FZF_COLUMNS=60 "$here/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
@@ -236,12 +245,17 @@ g1=$(geo "$w1") g2=$(geo "$w2") gs=$(geo "$s1")
 # apart from any real panel's by a before/after diff.
 waiters() { pgrep -f 'while tmux wait-for agents' | sort || true; }
 before="$(waiters)"
+TMUX_PANE=$shell "$here/agent-state" running </dev/null   # stale again: the panel sweeps on open
 "$here/agents-dock" toggle "$w1"
 p="$(t show -gv @agents_dock)"
 [ "$(t display -p -t "$p" '#{window_id}:#{pane_left}')" = "$w1:0" ] || fail "dock not on the left of work:1"
 [ "$(t display -p -t "$p" '#{pane_active}')" = 1 ] || fail "docking did not focus the panel"
 # A state change shows at once, well inside the 10s tick.
 sleep 1.5
+[ -z "$(t display -p -t "$shell" '#{@agent_state}')" ] || fail "the panel did not sweep on open"
+TMUX_PANE=$shell "$here/agent-state" running </dev/null   # and on every 10s tick
+sleep 11
+[ -z "$(t display -p -t "$shell" '#{@agent_state}')" ] || fail "the panel's tick did not sweep"
 n="$(t capture-pane -p -t "$p" | grep -c 'needs you')"
 TMUX_PANE=$a "$here/agent-state" input </dev/null; sleep 1
 [ "$(t capture-pane -p -t "$p" | grep -c 'needs you')" -gt "$n" ] || fail "panel did not reload on a state change"
