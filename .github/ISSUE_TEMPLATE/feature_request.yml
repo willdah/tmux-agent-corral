@@ -1,0 +1,10 @@
+name: Feature request
+description: Something the corral should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: want
+    attributes:
+      label: What you want and why
+    validations:
+      required: true
