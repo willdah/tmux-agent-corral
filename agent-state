@@ -17,7 +17,10 @@
 #                 the panel's cached project lookup; cleared here too
 #
 # Every change signals the tmux wait-for channel `agents`, which an open
-# panel waits on to refresh at once.
+# panel waits on to refresh at once. `input` and `done` also tell you, unless
+# a client is looking at the pane; @agents_notify says how: `tmux` (a message
+# in each client looking elsewhere), `os` (a desktop notification), `off`, or
+# a command, run with the message as its one argument.
 #
 # The state verbs always exit 0: a hook that fails must never get in the
 # agent's way. The two below are for scripts and other agents, and exit 1:
@@ -107,4 +110,30 @@ tmux wait-for -S agents 2>/dev/null
 tmux list-clients -F '#{client_name}' 2>/dev/null | while read -r c; do
   tmux refresh-client -S -t "$c" 2>/dev/null
 done
+
+# Needs you, or finished: tell the clients looking elsewhere, or you, when
+# none is looking at the pane. In the background, holding none of the hook's
+# fds: the agent's name comes from the panel's list, which is not instant.
+case "$state" in input) note='▲|needs you' ;; done) note='✓|finished' ;; *) exit 0 ;; esac
+how="$(tmux show -gv @agents_notify 2>/dev/null)"
+[ -n "$how" ] && [ "$how" != off ] || exit 0
+(
+  msg="${note%|*} $("$(here)/agents" --list 2>/dev/null | grep "^$p	" | cut -f3) ${note#*|}"
+  seen=0
+  while read -r c cp; do
+    [ "$cp" = "$p" ] && { seen=1; continue; }
+    # A title is the agent's to set, and a format to display-message.
+    [ "$how" = tmux ] && tmux display-message -t "$c" "${msg//#/##}"
+  done <<<"$(tmux list-clients -F '#{client_name} #{pane_id}')"
+  [ "$seen" = 0 ] || exit 0
+  case "$how" in
+    tmux) ;;
+    os) case "$(uname -s)" in
+          Darwin) q="${msg//\\/\\\\}"; q="${q//\"/\\\"}"
+                  osascript -e "display notification \"$q\" with title \"agents\"" ;;
+          *) command -v notify-send >/dev/null 2>&1 && notify-send agents "$msg" ;;
+        esac ;;
+    *) "$how" "$msg" ;;
+  esac
+) >/dev/null 2>&1 </dev/null &
 exit 0

@@ -121,6 +121,8 @@ Set any of these after the `source-file` line. Values are 256-colour indexes.
 
 `set -g @agents_group on` starts the panel grouped by tmux session (`g` toggles it).
 
+`@agents_notify` says how you hear that an agent needs you or finished while no client is looking at its pane: `tmux` (default: a message in every client looking elsewhere), `os` (a desktop notification, through `osascript` or `notify-send`), `off`, or a command of your own, run with the message (`▲ Fix login needs you`) as its one argument.
+
 `NO_COLOR=1` turns the panel's colours off.
 
 The hooks are registered at index `[40]` (`session-window-changed`, `client-session-changed`, `pane-focus-in`), so they sit alongside your own. `agents.tmux` also turns on `focus-events`.
