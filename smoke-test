@@ -77,6 +77,7 @@ for f in --jump --approve --interrupt --rename; do
   "$here/agents" "$f" -work </dev/null >/dev/null || fail "$f on a heading"
 done
 NO_COLOR=1 "$here/agents" --list | grep "^$a" | grep -q 'working    smokeproj' || fail "grouped untitled row"
+[ "$("$here/agents" --list | grep '^-work' | cut -f3)" = work ] || fail "heading's hidden name field"
 h="$(NO_COLOR=1 FZF_COLUMNS=12 "$here/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
 [ "${#h}" -le 7 ] || fail "group heading wider than the panel: $h"
 t set -g @agents_group on; "$here/agents" --group
@@ -130,7 +131,18 @@ k() { FZF_PROMPT="$1" FZF_QUERY="${2:-}" AGENTS_ENTER=jump AGENTS_FOOTER=keys \
   AGENTS_M=open-m AGENTS_N=open-n "$here/agents" --key "${@:3}"; }
 shown="$("$here/agents" --list | grep "^$b" | cut -f3)"; [ "$shown" = "Fix login" ] || fail "hidden name field: $shown"
 [ "$(k '> ' '' m "$b")" = open-m ] && [ "$(k '> ' '' n "$b")" = open-n ] || fail "m/n did not open on an agent"
-[ -z "$(k '> ' '' m -work)$(k '> ' '' n -work)" ] || fail "m/n opened on a heading"
+[ -z "$(k '> ' '' m -work)" ] || fail "m opened on a heading"
+[ "$(k '> ' '' n -work)" = open-n ] || fail "n did not open on a heading"
+# n on a heading renames its tmux session; it can't go nameless or take a name in use.
+t new-session -d -s tmp 'sleep 600'
+[ "$(k 'rename tmp › ' tmp enter -tmp tmp)" = change-footer:keys ] || fail "untouched session rename did something"
+[ "$(k 'rename tmp › ' '' enter -tmp tmp)" = change-footer:keys ] || fail "empty session rename did something"
+k 'rename tmp › ' side enter -tmp tmp | grep -q 'not renamed: .*duplicate' || fail "session renamed onto a taken name"
+k 'rename tmp › ' tmp2 enter -tmp tmp | grep -q 'renamed to .*tmp2' || fail "session rename footer"
+t has-session -t =tmp2 || fail "session not renamed"
+k 'rename tmp › ' x enter -tmp tmp | grep -q 'not renamed' || fail "rename of a gone session claimed success"
+t has-session -t =x 2>/dev/null && fail "rename of a gone session renamed another"
+t kill-session -t =tmp2
 k '> ' '' message "$(printf '%030d' 0)" | grep -q '^message to 0\{23\}… › $' || fail "long name not cut in the prompt"
 [ "$(k 'rename X › ' '' rename X)" = 'rename X › ' ] || fail "rename prompt"
 [ "$(k 'rename Fix login › ' 'Fix login' enter "$b" 'Fix login')" = change-footer:keys ] || fail "untouched rename did something"
