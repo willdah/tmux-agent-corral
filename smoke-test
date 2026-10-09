@@ -376,7 +376,7 @@ TMUX_PANE=$d "$here/agent-state" running </dev/null; TMUX_PANE=$d "$here/agent-s
 TMUX_PANE=$a "$here/agent-state" done </dev/null   # the client is on this one
 TMUX_PANE=$d "$here/agent-state" running </dev/null; TMUX_PANE=$d "$here/agent-state" idle </dev/null
 TMUX_PANE=$d "$here/agent-state" done </dev/null; sleep 1
-[ "$(sort "$nf")" = $'✓ Side quest #{pane_id} finished\n▲ Side quest #{pane_id} needs you' ] || fail "notify: $(cat "$nf")"
+[ "$(LC_ALL=C sort "$nf")" = "$(printf '▲ Side quest #{pane_id} needs you\n✓ Side quest #{pane_id} finished\n' | LC_ALL=C sort)" ] || fail "notify: $(cat "$nf")"
 t set -g @agents_notify off
 TMUX_PANE=$d "$here/agent-state" input </dev/null; sleep 0.3
 [ "$(wc -l <"$nf" | tr -d ' ')" = 2 ] || fail "notify off still notified"
