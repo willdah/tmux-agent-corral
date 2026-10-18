@@ -472,6 +472,26 @@ jq -e '.hooks.Stop[] | select(.hooks[0].command == "echo mine")' "$h/.claude/set
 [ -L "$h/.copilot/hooks/agent-state.json" ] || fail "install.sh did not link the copilot hooks"
 [ -L "$h/.pi/agent/extensions/agent-state.ts" ] || fail "install.sh did not link the pi extension"
 jq empty "$here/copilot-hooks.json" || fail "copilot-hooks.json is not valid JSON"
+# doctor, on that install and this server: all good; then each break is named.
+doc() { out="$(NO_COLOR=1 HOME="$h" "$here/doctor" 2>&1)"; }
+doc || fail "doctor failed on a good install: $out"
+case "$out" in *fail*|*warn*) fail "doctor complained about a good install: $out" ;; esac
+ag="$(t new-window -d -P -F '#{pane_id}' -t side: "bash -c 'exec -a claude sleep 600'")"
+doc; case "$out" in *"warn $ag "*"runs claude but reports nothing"*) ;; *) fail "doctor missed a silent agent: $out" ;; esac
+TMUX_PANE=$ag "$here/agent-state" running </dev/null
+doc; case "$out" in *"reports nothing"*) fail "doctor flagged a reporting agent: $out" ;; esac
+t kill-pane -t "$ag"
+t set -g @agents_notify /no/such/notifier
+doc && fail "doctor passed a missing notifier"
+case "$out" in *'fail @agents_notify runs /no/such/notifier'*) ;; *) fail "doctor on the notifier: $out" ;; esac
+t set -g @agents_notify off
+rm "$h/.copilot/hooks/agent-state.json"
+doc && fail "doctor passed missing copilot hooks"
+case "$out" in *'fail copilot: no '*) ;; *) fail "doctor on copilot: $out" ;; esac
+jq '.hooks.Stop |= map(select(any(.hooks[]; .command | test("agent-state")) | not))' "$h/.claude/settings.json" >"$tmp/s.json" && mv "$tmp/s.json" "$h/.claude/settings.json"
+doc && fail "doctor passed a missing claude hook"
+case "$out" in *'fail claude: no hook for Stop'*) ;; *) fail "doctor on claude's hooks: $out" ;; esac
+inst
 inst --remove
 [ "$(cat "$h/.tmux.conf")" = 'set -g mouse on' ] || fail "install.sh --remove left: $(cat "$h/.tmux.conf")"
 [ -e "$h/.config/tmux/agents" ] && fail "install.sh --remove left the link"

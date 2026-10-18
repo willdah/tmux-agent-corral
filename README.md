@@ -74,6 +74,14 @@ The `-a` appends to whatever you have. If the marks land in the wrong place, put
 > [!TIP]
 > To manage those lines yourself, pass `--no-tmux-conf` (with curl: `| bash -s -- --no-tmux-conf`). A config that already sources `agents.tmux` is left alone either way.
 
+### Check the setup
+
+```sh
+~/.config/tmux/agents/doctor
+```
+
+It checks the dependencies, each agent's hooks, that tmux has `agents.tmux` loaded and the marks in its status line and tabs, and the notifier, and names any agent running in tmux that reports nothing. It only reads, and says what to fix.
+
 ### Uninstall
 
 ```sh
@@ -171,7 +179,7 @@ agents --rows | awk -F'\t' '$4 == "input" { print $3 }'   # every pane waiting o
 <details>
 <summary><b>An agent isn't showing up.</b></summary>
 
-Agents that were already running when you installed need a restart to pick up the hooks. The agent also has to run inside a tmux pane: `agent-state` reads `$TMUX_PANE`, and without it the script does nothing.
+Run `~/.config/tmux/agents/doctor`: it names agents that run but report nothing, and hooks that are missing. Agents that were already running when you installed need a restart to pick up the hooks. The agent also has to run inside a tmux pane: `agent-state` reads `$TMUX_PANE`, and without it the script does nothing.
 
 </details>
 
