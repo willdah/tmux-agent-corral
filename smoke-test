@@ -452,6 +452,55 @@ kill "$nc" 2>/dev/null || true
 "$here/agents" --rename "$d"
 TMUX_PANE=$a "$here/agent-state" running </dev/null
 
+# agents-new: a session per agent, named after its folder, the command and
+# prompt typed into its shell; in a repo, --branch makes or reuses a worktree
+# from origin's default branch. The fake agents print what they were given.
+t set -g default-shell /bin/sh
+mkdir -p "$tmp/bin"
+for f in claude copilot; do printf '#!/bin/sh\nprintf "ran:%s"; printf "[%%s]" "$@"; echo\nexec sleep 600\n' "$f" >"$tmp/bin/$f"; chmod +x "$tmp/bin/$f"; done
+new() { "$here/agents-new" "$@"; }
+said() { for _ in $(seq 30); do t capture-pane -p -t "$1" | grep -qF -- "$2" && return 0; sleep 0.1; done; fail "$1 never showed $2: $(t capture-pane -p -t "$1")"; }
+P() { (cd -P "$1" && pwd); }
+np="$(new --dir "$proj" --agent "$tmp/bin/claude" --prompt "it's \$HOME \"x\"")" || fail "agents-new failed"
+said "$np" "ran:claude[--][it's \$HOME \"x\"]"
+[ "$(t display -p -t "$np" '#{session_name}|#{pane_current_path}')" = "smokeproj|$(P "$proj")" ] || fail "new session: $(t display -p -t "$np" '#{session_name}|#{pane_current_path}')"
+np2="$(new --dir "$proj" --agent "$tmp/bin/copilot" --prompt go)"
+said "$np2" 'ran:copilot[-i][go]'
+[ "$(t display -p -t "$np2" '#{session_name}')" = smokeproj-2 ] || fail "taken session name not bumped"
+np3="$(new --dir "$proj" --agent "$tmp/bin/claude")"; said "$np3" 'ran:claude'
+new --dir "$tmp/nowhere" --agent "$tmp/bin/claude" 2>/dev/null && fail "agents-new took a missing folder"
+new --dir "$proj" --agent no-such-agent 2>/dev/null && fail "agents-new took a missing agent"
+new --dir "$proj" --branch x --agent "$tmp/bin/claude" 2>/dev/null && fail "agents-new made a branch outside a repo"
+git init -q "$tmp/up"; G() { git -C "$1" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "${@:2}"; }
+G "$tmp/up" commit -q --allow-empty -m up
+git clone -q "$tmp/up" "$tmp/cl"; G "$tmp/cl" commit -q --allow-empty -m local
+up="$(G "$tmp/up" rev-parse HEAD)" cl="$(P "$tmp/cl")"
+nb="$(new --dir "$tmp/cl" --branch feat/x --agent "$tmp/bin/claude")" || fail "agents-new --branch failed"
+[ "$(t display -p -t "$nb" '#{session_name}|#{pane_current_path}')" = "feat-x|$cl-worktrees/feat-x" ] || fail "new worktree session: $(t display -p -t "$nb" '#{session_name}|#{pane_current_path}')"
+[ "$(G "$cl-worktrees/feat-x" rev-parse HEAD)" = "$up" ] || fail "new branch not made from origin's default branch"
+G "$cl-worktrees/feat-x" rev-parse -q --verify '@{u}' >/dev/null && fail "new branch tracks main"
+nb2="$(new --dir "$cl-worktrees/feat-x" --branch feat/x --agent "$tmp/bin/claude")"
+[ "$(t display -p -t "$nb2" '#{pane_current_path}')" = "$cl-worktrees/feat-x" ] || fail "worktree not reused from inside it"
+G "$tmp/cl" branch old
+nb3="$(new --dir "$tmp/cl" --branch old --agent "$tmp/bin/claude")" || fail "agents-new on an existing branch"
+[ "$(G "$cl-worktrees/old" branch --show-current)" = old ] || fail "existing branch not checked out in its worktree"
+new --dir "$tmp/cl" --branch 'a..b' --agent "$tmp/bin/claude" 2>/dev/null && fail "agents-new took a bad branch name"
+# The where step: the running agents' folders, a worktree as its main
+# checkout, then each @agents_roots folder's subfolders.
+mkdir -p "$tmp/roots/one" "$tmp/roots/two" "$tmp/roots/one-worktrees"
+TMUX_PANE=$nb "$here/agent-state" running </dev/null
+t set -g @agents_roots "$tmp/roots"
+w="$(new --dirs)"
+printf '%s\n' "$w" | grep -qx "$cl" || fail "where: no main checkout for a worktree agent: $w"
+printf '%s\n' "$w" | grep -qx "$cl-worktrees/feat-x" && fail "where: listed the worktree, not its repo: $w"
+for r in one two; do printf '%s\n' "$w" | grep -qx "$tmp/roots/$r" || fail "where: no $r from @agents_roots: $w"; done
+[ "$(printf '%s\n' "$w" | sort | uniq -d)" = '' ] || fail "where: repeats: $w"
+printf '%s\n' "$w" | grep -q 'one-worktrees' && fail "where: listed a worktrees folder: $w"
+t set -g @agents_roots ''
+TMUX_PANE=$nb "$here/agent-state" clear </dev/null
+for q in $np $np2 $np3 $nb $nb2 $nb3; do t kill-pane -t "$q"; done
+t set -gu default-shell
+
 # No agents left: the panel says so instead of going blank.
 for p in $a $b $d; do TMUX_PANE=$p "$here/agent-state" clear </dev/null; done
 "$here/agents" --list | grep -q 'no agents yet' || fail "empty state"
