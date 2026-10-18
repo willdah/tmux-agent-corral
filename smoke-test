@@ -370,7 +370,7 @@ t set -pu -t "$cur" @agent_state \; set -pu -t "$cur" @agent_since
 "$here/agent-state" seen %999 || fail "seen on a gone pane failed"
 
 # x: a working Copilot gets C-c once and reads idle, so a second x is refused
-# (another C-c would quit it); any other agent gets Escape.
+# (another C-c would quit it); any other agent gets Escape, and reads idle too.
 cp="$(t new-window -d -P -F '#{pane_id}' -t side: "sh -c 'trap \"echo GOT_CC\" INT; while :; do sleep 0.2; done'")"
 TMUX_PANE=$cp "$here/agent-state" running copilot </dev/null
 "$here/agents" --interrupt "$cp"; sleep 0.5
@@ -381,6 +381,11 @@ ec="$(t new-window -d -P -F '#{pane_id}' -t side: cat)"   # the tty echoes Escap
 TMUX_PANE=$ec "$here/agent-state" running </dev/null
 "$here/agents" --interrupt "$ec"; sleep 0.3
 t capture-pane -p -t "$ec" | grep -qF '^[' || fail "x sent no Escape"
+# Claude's Escape fires no hook either, so x marks it idle, harness kept, and
+# a second x is refused.
+[ "$(t display -p -t "$ec" '#{@agent_state} #{@agent}')" = 'idle claude' ] || fail "claude not idle after x"
+"$here/agents" --interrupt "$ec"; sleep 0.3
+[ "$(t capture-pane -p -t "$ec" | grep -o '\^\[' | wc -l | tr -d ' ')" = 1 ] || fail "x sent a second Escape to an idle agent"
 for q in $cp $ec; do t kill-pane -t "$q"; done
 grep -q sessionStart "$here/copilot-hooks.json" && fail "copilot sessionStart hook is back: it fires after the first prompt"
 
