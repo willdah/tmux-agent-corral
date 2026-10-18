@@ -162,7 +162,7 @@ agents --rows | awk -F'\t' '$4 == "input" { print $3 }'   # every pane waiting o
 ## Known limits
 
 > [!WARNING]
-> - Interrupting Claude with Escape fires no hook, so the pane keeps showing `●` until your next prompt.
+> - Interrupting Claude with Escape in its own pane fires no hook, so the pane keeps showing `●` until your next prompt. `x` in the panel marks it idle as it interrupts.
 > - Pi has no permission prompts of its own, so its `▲` only shows while an extension asks you something.
 > - With two terminals attached, the docked panel follows whichever one switched windows last.
 
@@ -185,7 +185,7 @@ No. `agent-state` always exits 0 and swallows its own errors, so the worst that 
 <details>
 <summary><b>A pane is stuck on <code>●</code> (or anything else).</b></summary>
 
-Usually that's an Escape interrupt in Claude (see [Known limits](#known-limits)); your next prompt fixes it. To clear it by hand, run `~/.config/tmux/agents/agent-state clear` in that pane. Closing the pane also clears it, because the state lives in the pane.
+Usually that's an Escape typed into Claude's pane (see [Known limits](#known-limits)); your next prompt fixes it, and interrupting with `x` from the panel avoids it. To clear it by hand, run `~/.config/tmux/agents/agent-state clear` in that pane. Closing the pane also clears it, because the state lives in the pane.
 
 </details>
 
