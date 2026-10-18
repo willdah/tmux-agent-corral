@@ -1,32 +1,37 @@
 #!/usr/bin/env bash
 # agents-new [stay]
-# agents-new --dir DIR [--branch BRANCH] [--agent AGENT] [--prompt TEXT]
+# agents-new --dir DIR [--branch BRANCH] [--session SESSION] [--agent AGENT] [--prompt TEXT]
 #
-# Starts an agent in a new tmux session. The panel's c runs the first form,
+# Starts an agent in a new tmux window. The panel's c runs the first form,
 # which asks one thing at a time, in the panel's frame:
 #
 #   where    a directory: the ones the running agents work in (a repo by its
 #            main checkout), the folders in @agents_roots (less any
 #            <repo>-worktrees), or a path you type
 #            (starting with /, ~ or .), repo or not
-#   branch   in a git repo, the worktree to run in: one it has, or a new
-#            branch, made at <repo>-worktrees/<branch, / as -> from origin's
-#            default branch (else HEAD); an existing branch gets a worktree of
-#            its own
+#   worktree in a git repo, where to run: the checkout itself or one of its
+#            worktrees, or + new worktree: a new branch, made at
+#            <repo>-worktrees/<branch, / as -> from origin's default branch
+#            (else HEAD); an existing branch gets a worktree of its own
+#   session  the tmux session to add the window to: the one you're in, any
+#            other, or + new session
 #   agent    whichever of claude, copilot and pi are installed; skipped when
 #            only one is
 #   prompt   a first prompt for the agent, or nothing
 #
-# then switches to the new session; with stay (the docked panel) the panel
+# then switches to the new window; with stay (the docked panel) the panel
 # follows and keeps focus. Esc cancels and goes back to the panel.
 #
 # The second form does the same without asking, for scripts and other
-# agents, and prints the new pane's id. --branch works as above; without
-# --agent it takes the first one installed. AGENT can be any command: it is
-# typed into the session's shell, with the prompt as its last argument
-# (copilot's with -i).
+# agents, and prints the new pane's id. --branch works as above. --session
+# names the session to add the window to, made when there is none, or new for
+# a session of its own; without it the window joins the caller's session
+# (outside tmux, a new one). Without --agent it takes the first one installed.
+# AGENT can be any command: it is typed into the window's shell, with the
+# prompt as its last argument (copilot's with -i).
 #
-# The session is named after the directory, with -2, -3... when that is taken.
+# The window is named after the directory; a new session is too, with -2,
+# -3... when that is taken.
 #
 #   agents-new --dirs   the folders the where step offers, one per line
 set -euo pipefail
@@ -73,17 +78,25 @@ worktree_for() {
   printf '%s' "$p"
 }
 
-# spawn DIR AGENT [TEXT]: a new session in DIR running AGENT; prints its pane.
+# spawn DIR AGENT [TEXT] [SESSION]: a new window in DIR running AGENT, in
+# SESSION (made when there is none), or in a session of its own when SESSION
+# is empty; prints its pane.
 spawn() {
-  local dir="$1" agent="$2" text="${3:-}" base name n=1 cmd pane
+  local dir="$1" agent="$2" text="${3:-}" sess="${4:-}" base name n=1 cmd pane
   base="${dir##*/}"; base="${base//[.:]/_}"; name="${base:-root}"
-  while tmux has-session -t "=$name" 2>/dev/null; do n=$(( n + 1 )); name="${base:-root}-$n"; done
   cmd="$agent"
   if [ -n "$text" ]; then
     case "${agent##*/}" in copilot) cmd+=" -i $(sq "$text")" ;; *) cmd+=" -- $(sq "$text")" ;; esac
   fi
-  pane="$(tmux new-session -d -s "$name" -c "$dir" -P -F '#{pane_id}')" || return 1
-  # Typed into the session's shell rather than run as its command: the agent
+  if [ -n "$sess" ] && tmux has-session -t "=$sess" 2>/dev/null; then
+    pane="$(tmux new-window -d -t "=$sess:" -n "$name" -c "$dir" -P -F '#{pane_id}')" || return 1
+  else
+    if [ -n "$sess" ]; then name="$sess"
+    else while tmux has-session -t "=$name" 2>/dev/null; do n=$(( n + 1 )); name="${base:-root}-$n"; done
+    fi
+    pane="$(tmux new-session -d -s "$name" -c "$dir" -P -F '#{pane_id}')" || return 1
+  fi
+  # Typed into the window's shell rather than run as its command: the agent
   # gets your shell's setup, and the pane stays when it quits.
   tmux send-keys -t "$pane" -l -- "$cmd" \; send-keys -t "$pane" Enter
   printf '%s\n' "$pane"
@@ -110,18 +123,29 @@ dirs() {
   done
 }
 
-# worktrees MAIN: the branch step's choices: new, then each worktree's branch
-# and folder.
+# worktrees MAIN: the worktree step's choices: new, then the checkout and
+# each worktree, by branch and folder.
 worktrees() {
-  printf '+\t%s+ new branch%s\n' "$TEXT" "$R"
+  printf '+\t%s+ new worktree%s\n' "$TEXT" "$R"
   git -C "$1" worktree list --porcelain | awk -v dim="$DIM" -v r="$R" '
-    function out() { if (w != "" && !gone) { d = w; sub(/.*\//, "", d); print w "\t" b "  " dim d r }
+    function out() { if (w != "" && !gone) { d = w; sub(/.*\//, "", d)
+                       print w "\t" b "  " dim d (n++ ? "" : "  (the checkout)") r }
                      w = ""; b = ""; gone = 0 }
     /^worktree /  { out(); w = substr($0, 10) }
     /^branch /    { b = substr($0, 19) }
     /^detached/   { b = "(detached)" }
     /^(bare|prunable)/ { gone = 1 }
     END           { out() }'
+}
+
+# sessions: the session step's choices: the one you're in, the others, then
+# new.
+sessions() {
+  local cur; cur="$(tmux display -p '#{session_name}' 2>/dev/null || true)"
+  tmux list-sessions -F '#{session_name}' 2>/dev/null | awk -v cur="$cur" -v dim="$DIM" -v r="$R" '
+    $0 == cur { print $0 "\t" $0 "  " dim "(you are here)" r; next }  { rest[++n] = $0 }
+    END { for (i = 1; i <= n; i++) print rest[i] "\t" rest[i] }'
+  printf '+\t%s+ new session%s\n' "$TEXT" "$R"
 }
 
 # The panel's palette, so a step looks like the panel it came from.
@@ -150,7 +174,7 @@ step() {
 # ask [stay]: the panel's c. Each answer is read off step's output: its first
 # line the query, its second the chosen row's first field.
 ask() {
-  local stay="${1:-}" out rc q sel dir m agent text note agents pane shown
+  local stay="${1:-}" out rc q sel dir m agent text note agents pane shown sess
   cancel() { [ "$stay" = stay ] || exec "$here/agents"; exit 0; }
   note="${DIM}a folder below, or type a path (/, ~ or .)$R"
   while :; do
@@ -164,9 +188,9 @@ ask() {
   done
 
   if m="$(mainof "$dir")"; then
-    note="${DIM}a worktree of $TEXT${m##*/}$DIM, or a new branch$R"
+    note="${DIM}run in $TEXT${m##*/}$DIM or a worktree of it, or make one on a new branch$R"
     while :; do
-      rc=0; out="$(worktrees "$m" | step 'branch › ' "$note")" || rc=$?
+      rc=0; out="$(worktrees "$m" | step 'worktree › ' "$note")" || rc=$?
       [ "$rc" -le 1 ] || cancel
       sel="$(sed -n 2p <<<"$out" | cut -f1)"
       [ -n "$sel" ] || continue
@@ -182,6 +206,9 @@ ask() {
 
   # The folder, its end kept when long: that's the part that tells them apart.
   shown="${dir/#$HOME/\~}"; [ "${#shown}" -le 48 ] || shown="…${shown:${#shown}-47}"
+  rc=0; out="$(sessions | step 'session › ' "${DIM}the session to add $TEXT$shown$DIM to$R")" || rc=$?
+  [ "$rc" = 0 ] || cancel
+  sess="$(sed -n 2p <<<"$out" | cut -f1)"; [ "$sess" != + ] || sess=''
   agents="$(installed)"
   [ -n "$agents" ] || die "no claude, copilot or pi on PATH"
   if [ "$(wc -l <<<"$agents")" -gt 1 ]; then
@@ -194,7 +221,7 @@ ask() {
   [ "$rc" -le 1 ] || cancel
   text="$(sed -n 1p <<<"$out")"
 
-  pane="$(spawn "$dir" "$agent" "$text")" || die "could not start a session in $dir"
+  pane="$(spawn "$dir" "$agent" "$text" "$sess")" || die "could not start an agent in $dir"
   "$here/agents" --jump "$pane" "$stay"
 }
 
@@ -202,14 +229,17 @@ case "${1:-}" in
   ''|stay) ask "${1:-}" ;;
   --dirs) dirs | cut -f1 ;;
   --*)
-    dir='' branch='' agent='' text=''
+    dir='' branch='' agent='' text='' sess=''
+    # The caller's session, unless told otherwise.
+    [ -z "${TMUX_PANE:-}" ] || sess="$(tmux display -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null || true)"
     while [ $# -gt 0 ]; do
       case "$1" in
         --dir) dir="${2:-}" ;;
         --branch) branch="${2:-}" ;;
+        --session) sess="${2:-}"; [ "$sess" != new ] || sess='' ;;
         --agent) agent="${2:-}" ;;
         --prompt) text="${2:-}" ;;
-        *) die "usage: $(basename "$0") --dir DIR [--branch BRANCH] [--agent AGENT] [--prompt TEXT]" ;;
+        *) die "usage: $(basename "$0") --dir DIR [--branch BRANCH] [--session SESSION] [--agent AGENT] [--prompt TEXT]" ;;
       esac
       shift 2 || die "$1 needs a value"
     done
@@ -222,7 +252,7 @@ case "${1:-}" in
     [ -n "$agent" ] || agent="$(installed | head -1)"
     [ -n "$agent" ] || die "no claude, copilot or pi on PATH; name one with --agent"
     command -v "$agent" >/dev/null 2>&1 || die "$agent not found"
-    spawn "$dir" "$agent" "$text"
+    spawn "$dir" "$agent" "$text" "$sess"
     ;;
-  *) die "usage: $(basename "$0") [stay] | --dir DIR [--branch BRANCH] [--agent AGENT] [--prompt TEXT]" ;;
+  *) die "usage: $(basename "$0") [stay] | --dir DIR [--branch BRANCH] [--session SESSION] [--agent AGENT] [--prompt TEXT]" ;;
 esac
