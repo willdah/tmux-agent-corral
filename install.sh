@@ -134,7 +134,7 @@ main() {
       rm -f "$tmp"
     fi
   fi
-  ok "done; restart running agents so they pick up the hooks"
+  ok "done; restart running agents so they pick up the hooks ($dest/doctor checks the setup)"
 }
 
 main "$@"
