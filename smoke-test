@@ -468,6 +468,17 @@ np2="$(new --dir "$proj" --agent "$tmp/bin/copilot" --prompt go)"
 said "$np2" 'ran:copilot[-i][go]'
 [ "$(t display -p -t "$np2" '#{session_name}')" = smokeproj-2 ] || fail "taken session name not bumped"
 np3="$(new --dir "$proj" --agent "$tmp/bin/claude")"; said "$np3" 'ran:claude'
+# --session adds a window, named after the folder, to a session there is,
+# makes one there isn't; inside tmux the caller's session is the default.
+nw="$(new --dir "$proj" --session side --agent "$tmp/bin/claude")"; said "$nw" 'ran:claude'
+[ "$(t display -p -t "$nw" '#{session_name}|#{window_name}|#{pane_current_path}')" = "side|smokeproj|$(P "$proj")" ] || fail "window in a session: $(t display -p -t "$nw" '#{session_name}|#{window_name}')"
+nw2="$(new --dir "$proj" --session peers --agent "$tmp/bin/claude")"
+[ "$(t display -p -t "$nw2" '#{session_name}')" = peers ] || fail "named session not made"
+nw3="$(TMUX_PANE=$a new --dir "$proj" --agent "$tmp/bin/claude")"
+[ "$(t display -p -t "$nw3" '#{session_name}')" = work ] || fail "window not in the caller's session"
+nw4="$(TMUX_PANE=$a new --dir "$proj" --session new --agent "$tmp/bin/claude")"
+[ "$(t display -p -t "$nw4" '#{session_name}')" = smokeproj-4 ] || fail "--session new: $(t display -p -t "$nw4" '#{session_name}')"
+for q in $nw $nw2 $nw3 $nw4; do t kill-pane -t "$q"; done
 new --dir "$tmp/nowhere" --agent "$tmp/bin/claude" 2>/dev/null && fail "agents-new took a missing folder"
 new --dir "$proj" --agent no-such-agent 2>/dev/null && fail "agents-new took a missing agent"
 new --dir "$proj" --branch x --agent "$tmp/bin/claude" 2>/dev/null && fail "agents-new made a branch outside a repo"

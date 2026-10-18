@@ -107,7 +107,7 @@ Inside the panel:
 | `n` | give it a name, starting from the one it shows (empty resets to the agent's own title) |
 | `x` | interrupt: sends Escape (C-c to Copilot), and only to an agent that is working |
 | `d` | kill its pane, once you confirm with ↵ (esc cancels); the last pane takes its window, the last window its session |
-| `c` | start a new agent in a session of its own: pick a folder, a worktree if it's a git repo, the agent, and a first prompt or none (see [New agents](#new-agents)); not in the docked panel's key hints, but works there |
+| `c` | start a new agent in a window of its own: pick a folder, a worktree if it's a git repo, the session to add it to, the agent, and a first prompt or none (see [New agents](#new-agents)); not in the docked panel's key hints, but works there |
 | `g` | group by tmux session (the session with the most urgent agent first, each heading counting its agents by state); not in the docked panel's key hints, but works there |
 | `p` | toggle the live preview |
 | `r` | refresh |
@@ -120,14 +120,15 @@ The docked panel moves into whichever window you switch to. Each window's layout
 
 ### New agents
 
-`c` asks four things, one at a time, in the panel:
+`c` asks five things, one at a time, in the panel:
 
 1. **Where:** the folders your running agents work in (a repo by its main checkout), the subfolders of each folder in `@agents_roots`, or a path you type, starting with `/`, `~` or `.`. It doesn't have to be a repo.
-2. **Branch**, in a git repo only: one of its worktrees, or `+ new branch`. A new branch gets a worktree at `<repo>-worktrees/<branch>` (with `/` as `-`), made from origin's default branch, or `HEAD` without one. A worktree has only tracked files, so install dependencies there before building.
-3. **Agent:** whichever of claude, copilot and pi are installed; skipped when there's only one.
-4. **Prompt:** a first prompt to start it on, or ↵ to start it without one.
+2. **Worktree**, in a git repo only: the checkout itself (marked `(the checkout)`), one of its worktrees, or `+ new worktree`, which asks for a branch name. The new worktree goes at `<repo>-worktrees/<branch>` (with `/` as `-`), on a new branch made from origin's default branch (or `HEAD` without one), or on that branch if it exists. A worktree has only tracked files, so install dependencies there before building.
+3. **Session:** the tmux session to add the agent's window to: the one you're in (first), any other, or `+ new session`.
+4. **Agent:** whichever of claude, copilot and pi are installed; skipped when there's only one.
+5. **Prompt:** a first prompt to start it on, or ↵ to start it without one.
 
-The agent starts in a new tmux session named after its folder, and you land on it (the docked panel follows). `esc` at any step goes back to the panel.
+The agent starts in a new window named after its folder (a new session is named after it too), and you land on it (the docked panel follows). `esc` at any step goes back to the panel.
 
 ## Configure
 
@@ -178,11 +179,11 @@ agent-state prompt %7 "run the tests and fix what breaks" && agent-state wait %7
 `agents-new` starts one without asking, and prints its pane, so a script can start a peer and hand it work:
 
 ```sh
-agents-new --dir DIR [--branch BRANCH] [--agent AGENT] [--prompt TEXT]
+agents-new --dir DIR [--branch BRANCH] [--session SESSION] [--agent AGENT] [--prompt TEXT]
 p=$(agents-new --dir ~/src/app --branch fix/flaky --agent claude --prompt "find and fix the flaky test") && agent-state wait "$p"
 ```
 
-`--branch` makes or reuses a worktree as `c` does; without `--agent` it takes the first of claude, copilot and pi that is installed. `AGENT` can be any command: it's typed into the session's shell with the prompt as its last argument (Copilot's with `-i`).
+`--branch` makes or reuses a worktree as `c` does. `--session` adds the window to that session, making it if there is none, or `--session new` gives it a session of its own; without it the window joins the caller's session (outside tmux, a new one). Without `--agent` it takes the first of claude, copilot and pi that is installed. `AGENT` can be any command: it's typed into the session's shell with the prompt as its last argument (Copilot's with `-i`).
 
 To find a pane, `agents --rows` prints one tab-separated record per agent in the panel's order: rank (0 needs you, 1 finished, 2 idle, 3 working), since (epoch), pane id, state, harness, project, name, session. With grouping on, a heading record leads each session: rank `H`, its counts by rank in the state field, `-<session>` as the id. Two housekeeping verbs round out the record: `agent-state seen PANE` dims a finished agent to idle (the focus hook and the panel's jump call it), and `agent-state sweep` clears every pane whose agent died without saying so (the panel runs it on open and every 10s).
 
