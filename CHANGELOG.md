@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.11.0](https://github.com/willdah/tmux-agent-corral/compare/0.10.1...0.11.0) - 2026-10-18
+
+### Added
+
+- doctor checks the setup and says what to fix
+
+## [0.10.1](https://github.com/willdah/tmux-agent-corral/compare/0.10.0...0.10.1) - 2026-10-18
+
+### Fixed
+
+- x marks an interrupted Claude idle, not working until the next prompt
+
 ## [0.10.0](https://github.com/willdah/tmux-agent-corral/compare/0.9.0...0.10.0) - 2026-10-09
 
 ### Added

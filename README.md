@@ -74,6 +74,14 @@ The `-a` appends to whatever you have. If the marks land in the wrong place, put
 > [!TIP]
 > To manage those lines yourself, pass `--no-tmux-conf` (with curl: `| bash -s -- --no-tmux-conf`). A config that already sources `agents.tmux` is left alone either way.
 
+### Check the setup
+
+```sh
+~/.config/tmux/agents/doctor
+```
+
+It checks the dependencies, each agent's hooks, that tmux has `agents.tmux` loaded and the marks in its status line and tabs, and the notifier, and names any agent running in tmux that reports nothing. It only reads, and says what to fix.
+
 ### Uninstall
 
 ```sh
@@ -185,7 +193,7 @@ agents --rows | awk -F'\t' '$4 == "input" { print $3 }'   # every pane waiting o
 ## Known limits
 
 > [!WARNING]
-> - Interrupting Claude with Escape fires no hook, so the pane keeps showing `●` until your next prompt.
+> - Interrupting Claude with Escape in its own pane fires no hook, so the pane keeps showing `●` until your next prompt. `x` in the panel marks it idle as it interrupts.
 > - Pi has no permission prompts of its own, so its `▲` only shows while an extension asks you something.
 > - With two terminals attached, the docked panel follows whichever one switched windows last.
 
@@ -194,7 +202,7 @@ agents --rows | awk -F'\t' '$4 == "input" { print $3 }'   # every pane waiting o
 <details>
 <summary><b>An agent isn't showing up.</b></summary>
 
-Agents that were already running when you installed need a restart to pick up the hooks. The agent also has to run inside a tmux pane: `agent-state` reads `$TMUX_PANE`, and without it the script does nothing.
+Run `~/.config/tmux/agents/doctor`: it names agents that run but report nothing, and hooks that are missing. Agents that were already running when you installed need a restart to pick up the hooks. The agent also has to run inside a tmux pane: `agent-state` reads `$TMUX_PANE`, and without it the script does nothing.
 
 </details>
 
@@ -208,7 +216,7 @@ No. `agent-state` always exits 0 and swallows its own errors, so the worst that 
 <details>
 <summary><b>A pane is stuck on <code>●</code> (or anything else).</b></summary>
 
-Usually that's an Escape interrupt in Claude (see [Known limits](#known-limits)); your next prompt fixes it. To clear it by hand, run `~/.config/tmux/agents/agent-state clear` in that pane. Closing the pane also clears it, because the state lives in the pane.
+Usually that's an Escape typed into Claude's pane (see [Known limits](#known-limits)); your next prompt fixes it, and interrupting with `x` from the panel avoids it. To clear it by hand, run `~/.config/tmux/agents/agent-state clear` in that pane. Closing the pane also clears it, because the state lives in the pane.
 
 </details>
 

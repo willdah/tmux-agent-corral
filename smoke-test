@@ -370,7 +370,7 @@ t set -pu -t "$cur" @agent_state \; set -pu -t "$cur" @agent_since
 "$here/agent-state" seen %999 || fail "seen on a gone pane failed"
 
 # x: a working Copilot gets C-c once and reads idle, so a second x is refused
-# (another C-c would quit it); any other agent gets Escape.
+# (another C-c would quit it); any other agent gets Escape, and reads idle too.
 cp="$(t new-window -d -P -F '#{pane_id}' -t side: "sh -c 'trap \"echo GOT_CC\" INT; while :; do sleep 0.2; done'")"
 TMUX_PANE=$cp "$here/agent-state" running copilot </dev/null
 "$here/agents" --interrupt "$cp"; sleep 0.5
@@ -381,6 +381,11 @@ ec="$(t new-window -d -P -F '#{pane_id}' -t side: cat)"   # the tty echoes Escap
 TMUX_PANE=$ec "$here/agent-state" running </dev/null
 "$here/agents" --interrupt "$ec"; sleep 0.3
 t capture-pane -p -t "$ec" | grep -qF '^[' || fail "x sent no Escape"
+# Claude's Escape fires no hook either, so x marks it idle, harness kept, and
+# a second x is refused.
+[ "$(t display -p -t "$ec" '#{@agent_state} #{@agent}')" = 'idle claude' ] || fail "claude not idle after x"
+"$here/agents" --interrupt "$ec"; sleep 0.3
+[ "$(t capture-pane -p -t "$ec" | grep -o '\^\[' | wc -l | tr -d ' ')" = 1 ] || fail "x sent a second Escape to an idle agent"
 for q in $cp $ec; do t kill-pane -t "$q"; done
 grep -q sessionStart "$here/copilot-hooks.json" && fail "copilot sessionStart hook is back: it fires after the first prompt"
 
@@ -521,6 +526,26 @@ jq -e '.hooks.Stop[] | select(.hooks[0].command == "echo mine")' "$h/.claude/set
 [ -L "$h/.copilot/hooks/agent-state.json" ] || fail "install.sh did not link the copilot hooks"
 [ -L "$h/.pi/agent/extensions/agent-state.ts" ] || fail "install.sh did not link the pi extension"
 jq empty "$here/copilot-hooks.json" || fail "copilot-hooks.json is not valid JSON"
+# doctor, on that install and this server: all good; then each break is named.
+doc() { out="$(NO_COLOR=1 HOME="$h" "$here/doctor" 2>&1)"; }
+doc || fail "doctor failed on a good install: $out"
+case "$out" in *fail*|*warn*) fail "doctor complained about a good install: $out" ;; esac
+ag="$(t new-window -d -P -F '#{pane_id}' -t side: "bash -c 'exec -a claude sleep 600'")"
+doc; case "$out" in *"warn $ag "*"runs claude but reports nothing"*) ;; *) fail "doctor missed a silent agent: $out" ;; esac
+TMUX_PANE=$ag "$here/agent-state" running </dev/null
+doc; case "$out" in *"reports nothing"*) fail "doctor flagged a reporting agent: $out" ;; esac
+t kill-pane -t "$ag"
+t set -g @agents_notify /no/such/notifier
+doc && fail "doctor passed a missing notifier"
+case "$out" in *'fail @agents_notify runs /no/such/notifier'*) ;; *) fail "doctor on the notifier: $out" ;; esac
+t set -g @agents_notify off
+rm "$h/.copilot/hooks/agent-state.json"
+doc && fail "doctor passed missing copilot hooks"
+case "$out" in *'fail copilot: no '*) ;; *) fail "doctor on copilot: $out" ;; esac
+jq '.hooks.Stop |= map(select(any(.hooks[]; .command | test("agent-state")) | not))' "$h/.claude/settings.json" >"$tmp/s.json" && mv "$tmp/s.json" "$h/.claude/settings.json"
+doc && fail "doctor passed a missing claude hook"
+case "$out" in *'fail claude: no hook for Stop'*) ;; *) fail "doctor on claude's hooks: $out" ;; esac
+inst
 inst --remove
 [ "$(cat "$h/.tmux.conf")" = 'set -g mouse on' ] || fail "install.sh --remove left: $(cat "$h/.tmux.conf")"
 [ -e "$h/.config/tmux/agents" ] && fail "install.sh --remove left the link"

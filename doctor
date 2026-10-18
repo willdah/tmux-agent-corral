@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# doctor: checks that tmux-agent-corral is wired up, and says what to fix.
+#
+#   ~/.config/tmux/agents/doctor
+#
+# Looks at the dependencies, the install at ~/.config/tmux/agents (the path
+# the hooks and key bindings call), the running tmux server (agents.tmux
+# loaded, the marks in the status line and tabs, the notifier), the hooks of
+# each agent that is installed, and agents running in tmux that report
+# nothing. It only reads. Exits 1 when something is broken, 0 when at most a
+# warning is left. NO_COLOR turns the colours off.
+set -uo pipefail
+
+if [ -n "${NO_COLOR:-}" ]; then G='' Y='' RD='' R=''
+else G=$'\033[1;32m' Y=$'\033[1;33m' RD=$'\033[1;31m' R=$'\033[0m'; fi
+bad=0
+ok()   { printf '%s ok %s %s\n' "$G" "$R" "$*"; }
+warn() { printf '%swarn%s %s\n' "$Y" "$R" "$*"; }
+fail() { printf '%sfail%s %s\n' "$RD" "$R" "$*"; bad=1; }
+
+dest="$HOME/.config/tmux/agents"
+copilot="$HOME/.copilot/hooks/agent-state.json"
+pi="$HOME/.pi/agent/extensions/agent-state.ts"
+
+# atleast <version> <minimum>
+atleast() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
+
+# Dependencies.
+if v="$(tmux -V 2>/dev/null)"; then
+  v="${v#tmux }"; v="${v#next-}"
+  if atleast "${v%%[!0-9.]*}" 3.3; then ok "tmux $v"; else fail "tmux $v is too old; the panel needs 3.3+"; fi
+else fail "tmux not found"; fi
+if v="$(fzf --version 2>/dev/null)"; then
+  v="${v%% *}"
+  if atleast "$v" 0.71; then ok "fzf $v"; else fail "fzf $v is too old; the panel needs 0.71+"; fi
+else fail "fzf not found; the panel needs it"; fi
+for c in git jq curl; do
+  command -v "$c" >/dev/null 2>&1 || fail "$c not found; the panel needs it"
+done
+
+# The install.
+if [ -x "$dest/agent-state" ] && [ -x "$dest/agents" ]; then
+  ok "installed at $dest$([ -L "$dest" ] && printf ' → %s' "$(cd -P "$dest" && pwd)")"
+else fail "nothing at $dest; run install.sh"; fi
+
+# Each installed agent's hooks, found the way install.sh finds the agent.
+found=0
+if command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude" ]; then
+  found=1 f="$HOME/.claude/settings.json"
+  if ! have="$(jq -r '.hooks // {} | to_entries[]
+        | select(any(.value[]?.hooks[]?; (.command // "") | test("agent-state"))) | .key' "$f" 2>/dev/null)"; then
+    fail "claude: can't read $f; run install.sh"
+  else
+    missing=''
+    for e in SessionStart UserPromptSubmit PostToolUse Notification Stop SessionEnd; do
+      grep -qx "$e" <<<"$have" || missing+=" $e"
+    done
+    if [ -z "$have" ]; then fail "claude: no hooks in $f; run install.sh"
+    elif [ -n "$missing" ]; then fail "claude: no hook for$missing in $f; run install.sh"
+    elif [ "$(jq '.disableAllHooks // false' "$f")" = true ]; then fail "claude: disableAllHooks is on in $f"
+    else ok "claude: hooks in $f"; fi
+    # The command is `"<path>" <state>`: the path has to be there.
+    while read -r p; do
+      [ -x "$p" ] || fail "claude: the hooks call $p, which isn't there; run install.sh"
+    done < <(jq -r '.hooks // {} | .[][].hooks[]?.command // empty | select(test("agent-state"))' "$f" |
+               sed -n 's/^"\([^"]*\)".*/\1/p' | sort -u)
+  fi
+fi
+# link_check <agent> <link>
+link_check() {
+  if [ -e "$2" ]; then ok "$1: $2"
+  elif [ -L "$2" ]; then fail "$1: $2 is a broken link; run install.sh"
+  else fail "$1: no $2; run install.sh"; fi
+}
+if command -v copilot >/dev/null 2>&1 || [ -d "$HOME/.copilot" ]; then found=1; link_check copilot "$copilot"; fi
+if command -v pi >/dev/null 2>&1 || [ -d "$HOME/.pi" ]; then found=1; link_check pi "$pi"; fi
+[ "$found" = 1 ] || warn "no Claude Code, Copilot CLI or Pi found; other agents report through agent-state"
+
+# The tmux server.
+if ! tmux info >/dev/null 2>&1; then
+  warn "no tmux server running; start tmux and run this again to check it"
+  exit "$bad"
+fi
+if tmux show-hooks -g 'pane-focus-in[40]' 2>/dev/null | grep -q agent-state; then ok "tmux has agents.tmux loaded"
+else fail "tmux hasn't loaded agents.tmux; source it from your tmux.conf (see the README)"; fi
+tmux list-keys 2>/dev/null | grep -q '/agents/agents' || warn "no key opens the panel"
+tmux show -gv status-right 2>/dev/null | grep -qF '@agents_status' ||
+  warn 'status-right has no #{E:@agents_status}, so the status line shows no marks'
+tmux show -gv window-status-format 2>/dev/null | grep -qF '@agent_tab' ||
+  tmux show -gv window-status-current-format 2>/dev/null | grep -qF '@agent_tab' ||
+  warn 'the window formats have no #{E:@agent_tab}, so the tabs show no marks'
+[ "$(tmux show -gv focus-events 2>/dev/null)" = on ] ||
+  warn "focus-events is off, so looking at a finished agent won't dim its ✓"
+how="$(tmux show -gv @agents_notify 2>/dev/null)"
+case "$how" in
+  tmux|off|'') ;;
+  os) case "$(uname -s)" in
+        Darwin) command -v osascript >/dev/null 2>&1 || fail "@agents_notify is os, but there's no osascript" ;;
+        *) command -v notify-send >/dev/null 2>&1 || fail "@agents_notify is os, but there's no notify-send" ;;
+      esac ;;
+  *) command -v "$how" >/dev/null 2>&1 || fail "@agents_notify runs $how, which isn't there" ;;
+esac
+
+# Agents running in tmux. One that reports nothing was most likely started
+# before its hooks went in. Its process sits anywhere under the pane (a
+# wrapper, a shell), and Claude names its process by its version, so this
+# goes by each process's command line.
+n="$(tmux list-panes -a -f '#{@agent_state}' -F . 2>/dev/null | wc -l | tr -d ' ')"
+ok "$n agent(s) reporting"
+tmux list-panes -a -f '#{==:#{@agent_state},}' -F '#{pane_id} #{pane_pid}' 2>/dev/null |
+  while read -r id root; do
+    ps -A -o pid=,ppid=,args= | awk -v root="$root" '
+      { kid[$2] = kid[$2] " " $1; a = $3; if (a ~ /(^|\/)node$/) a = $4
+        sub(/.*\//, "", a); cmd[$1] = a }
+      END { q[0] = root; n = 1
+        for (i = 0; i < n; i++) {
+          if (cmd[q[i]] ~ /^(claude|copilot|pi)$/) { print cmd[q[i]]; exit }
+          m = split(kid[q[i]], k, " "); for (j = 1; j <= m; j++) q[n++] = k[j] } }' |
+      while read -r who; do
+        warn "$id ($(tmux display -p -t "$id" '#{session_name}:#{window_index}.#{pane_index}')) runs $who but reports nothing; restart it to load the hooks"
+      done
+  done
+
+exit "$bad"

@@ -265,14 +265,14 @@ interrupt() {
   is_pane "${1:-}" || return 0
   [ "$(tmux display -p -t "$1" '#{@agent_state}' 2>/dev/null)" = running ] ||
     { tmux display-message "agents: that one isn't working"; return 0; }
-  if [ "$(tmux display -p -t "$1" '#{@agent}' 2>/dev/null)" = copilot ]; then
-    # Copilot ignores a sent Escape, and its cancel fires no hook. Mark it
-    # idle here, or a second x would send the C-c that quits it.
-    tmux send-keys -t "$1" C-c
-    TMUX_PANE="$1" "${self%/*}/agent-state" idle copilot </dev/null
-  else
-    tmux send-keys -t "$1" Escape
+  # Copilot ignores a sent Escape. Neither its cancel nor Claude's Escape
+  # fires a hook, so mark the agent idle here: it would read working until
+  # the next prompt, and for Copilot a second x would send the C-c that quits it.
+  local agent; agent="$(tmux display -p -t "$1" '#{@agent}' 2>/dev/null)"
+  if [ "$agent" = copilot ]; then tmux send-keys -t "$1" C-c
+  else tmux send-keys -t "$1" Escape
   fi
+  TMUX_PANE="$1" "${self%/*}/agent-state" idle "$agent" </dev/null
 }
 
 # message PANE TEXT: type TEXT into the agent and press Enter. Fails when the
