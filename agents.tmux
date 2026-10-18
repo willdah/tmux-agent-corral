@@ -37,6 +37,10 @@ set -g @agent_c_dim     247
 # g in the panel toggles it.
 set -g @agents_group off
 
+# Folders whose subfolders the panel's c offers as places to start an agent,
+# space-separated (~ works), beside the ones the running agents are in.
+set -g @agents_roots ""
+
 # How to tell you that an agent needs you or finished, when no client is
 # looking at its pane: tmux (a message in each client looking elsewhere), os
 # (a desktop notification: osascript, or notify-send), off, or a command to

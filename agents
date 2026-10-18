@@ -20,7 +20,7 @@
 #                     Grouped, a heading record leads each session: rank H,
 #                     its counts by rank in the state field, -<session> as id.
 #
-# Keys: ↵ jump · y approve · m message · n rename · x interrupt · d kill · g group · r refresh · q close
+# Keys: ↵ jump · y approve · m message · n rename · x interrupt · d kill · c new · g group · r refresh · q close
 #
 # With @agents_group on (g toggles it), the rows sit under a heading per tmux
 # session, each in the usual order. The session holding the most urgent row
@@ -394,17 +394,19 @@ ping() {
 
 panel() {
   command -v fzf >/dev/null 2>&1 || die "fzf not found (brew install fzf)"
-  local watch="${1:-}" enter preview keys start=''
+  local watch="${1:-}" enter new preview keys start=''
   # The docked panel is narrow, so its key hints are shorter.
   if [ "$watch" = watch ]; then
     start="execute-silent(tmux set -p -t \$TMUX_PANE @agents_port \$FZF_PORT)+transform-border-label($self --label)+"
     enter="execute-silent($self --jump {1} stay)"
+    new="execute(${self%/*}/agents-new stay)+reload-sync($self --list0)"
     preview='down,60%,follow,border-top,hidden'
     keys='↵ jump|y approve|m msg|n name|x stop|d kill|p peek|q close'
   else
     enter="become($self --jump {1})"
+    new="become(${self%/*}/agents-new)"
     preview='down,65%,follow,border-top'
-    keys='↵ jump|y approve|m message|n rename|x interrupt|d kill|g group|p preview|q close'
+    keys='↵ jump|y approve|m message|n rename|x interrupt|d kill|c new|g group|p preview|q close'
   fi
   local footer='' k
   while IFS= read -r -d '|' k; do
@@ -420,7 +422,7 @@ panel() {
 
   # While a field is open the action letters and ↑↓ type or stay put, so the
   # row being written to can't change underneath.
-  local lock='y,x,m,n,d,r,g,p,j,k,q,up,down'
+  local lock='y,x,m,n,d,c,r,g,p,j,k,q,up,down'
   local open="unbind($lock)+disable-search+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
   local close="+clear-query+enable-search+hide-input+change-prompt(> )+rebind($lock)+reload-sync($self --list0)"
   export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
@@ -455,6 +457,7 @@ panel() {
     --bind="m:transform($self --key m {1})" \
     --bind="n:transform($self --key n {1})" \
     --bind="d:transform($self --key d {1})" \
+    --bind="c:$new" \
     --bind="r:reload-sync($self --list0)" \
     --bind="g:execute-silent($self --group)+reload-sync($self --list0)" \
     --bind="p:toggle-preview+transform-preview-label:$label" \

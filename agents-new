@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# agents-new [stay]
+# agents-new --dir DIR [--branch BRANCH] [--agent AGENT] [--prompt TEXT]
+#
+# Starts an agent in a new tmux session. The panel's c runs the first form,
+# which asks one thing at a time, in the panel's frame:
+#
+#   where    a directory: the ones the running agents work in (a repo by its
+#            main checkout), the folders in @agents_roots (less any
+#            <repo>-worktrees), or a path you type
+#            (starting with /, ~ or .), repo or not
+#   branch   in a git repo, the worktree to run in: one it has, or a new
+#            branch, made at <repo>-worktrees/<branch, / as -> from origin's
+#            default branch (else HEAD); an existing branch gets a worktree of
+#            its own
+#   agent    whichever of claude, copilot and pi are installed; skipped when
+#            only one is
+#   prompt   a first prompt for the agent, or nothing
+#
+# then switches to the new session; with stay (the docked panel) the panel
+# follows and keeps focus. Esc cancels and goes back to the panel.
+#
+# The second form does the same without asking, for scripts and other
+# agents, and prints the new pane's id. --branch works as above; without
+# --agent it takes the first one installed. AGENT can be any command: it is
+# typed into the session's shell, with the prompt as its last argument
+# (copilot's with -i).
+#
+# The session is named after the directory, with -2, -3... when that is taken.
+#
+#   agents-new --dirs   the folders the where step offers, one per line
+set -euo pipefail
+
+here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+die() { printf '\033[1;31mfail\033[0m %s\n' "$*" >&2; exit 1; }
+
+# sq TEXT: TEXT quoted for any shell the session might run.
+sq() { local q="'\\''"; printf "'%s'" "${1//\'/$q}"; }
+
+# installed: the built-in harnesses on PATH, one per line.
+installed() {
+  local h
+  for h in claude copilot pi; do command -v "$h" >/dev/null 2>&1 && printf '%s\n' "$h"; done
+  return 0
+}
+
+# mainof DIR: the main checkout of the repo DIR is in; fails outside one (or
+# in a bare repo, which has no checkout to run in).
+mainof() {
+  local g
+  g="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  case "$g" in (*/.git) printf '%s' "${g%/.git}" ;; (*) return 1 ;; esac
+}
+
+# worktree_for MAIN BRANCH: prints the path of the worktree with BRANCH,
+# making one when there is none. On failure it prints why, and fails.
+worktree_for() {
+  local m="$1" b="$2" p base out
+  git -C "$m" check-ref-format --branch "$b" >/dev/null 2>&1 || { printf 'not a branch name: %s' "$b"; return 1; }
+  p="$(git -C "$m" worktree list --porcelain | awk -v r="branch refs/heads/$b" '
+    /^worktree / { w = substr($0, 10) }  $0 == r { print w; exit }')"
+  [ -z "$p" ] || { printf '%s' "$p"; return 0; }
+  p="$m-worktrees/${b//\//-}"
+  [ ! -e "$p" ] || { printf '%s is already there' "$p"; return 1; }
+  if git -C "$m" show-ref -q --verify "refs/heads/$b"; then
+    out="$(git -C "$m" worktree add -q "$p" "$b" 2>&1)" || { printf '%s' "${out##*$'\n'}"; return 1; }
+  else
+    # --no-track: the new branch is yours, not a copy of main to push back.
+    base="$(git -C "$m" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)" || base=HEAD
+    out="$(git -C "$m" worktree add -q --no-track -b "$b" "$p" "$base" 2>&1)" || { printf '%s' "${out##*$'\n'}"; return 1; }
+  fi
+  printf '%s' "$p"
+}
+
+# spawn DIR AGENT [TEXT]: a new session in DIR running AGENT; prints its pane.
+spawn() {
+  local dir="$1" agent="$2" text="${3:-}" base name n=1 cmd pane
+  base="${dir##*/}"; base="${base//[.:]/_}"; name="${base:-root}"
+  while tmux has-session -t "=$name" 2>/dev/null; do n=$(( n + 1 )); name="${base:-root}-$n"; done
+  cmd="$agent"
+  if [ -n "$text" ]; then
+    case "${agent##*/}" in copilot) cmd+=" -i $(sq "$text")" ;; *) cmd+=" -- $(sq "$text")" ;; esac
+  fi
+  pane="$(tmux new-session -d -s "$name" -c "$dir" -P -F '#{pane_id}')" || return 1
+  # Typed into the session's shell rather than run as its command: the agent
+  # gets your shell's setup, and the pane stays when it quits.
+  tmux send-keys -t "$pane" -l -- "$cmd" \; send-keys -t "$pane" Enter
+  printf '%s\n' "$pane"
+}
+
+# dirs: the where step's choices, tab-separated: path, then how it shows.
+dirs() {
+  local d m r roots
+  {
+    tmux list-panes -a -f '#{@agent_state}' -F '#{pane_current_path}' 2>/dev/null | while IFS= read -r d; do
+      if m="$(mainof "$d")"; then printf '%s\n' "$m"; else printf '%s\n' "$d"; fi
+    done
+    read -r -a roots <<<"$(tmux show -gv @agents_roots 2>/dev/null || true)"
+    for r in ${roots[@]+"${roots[@]}"}; do
+      r="${r/#\~/$HOME}"
+      # A <repo>-worktrees folder is reached through its repo's branch step.
+      for d in "$r"/*/; do
+        case "$d" in (*-worktrees/) continue ;; esac
+        [ -d "$d" ] && printf '%s\n' "${d%/}"
+      done
+    done
+  } | awk '!seen[$0]++' | while IFS= read -r d; do
+    printf '%s\t%s\n' "$d" "${d/#$HOME/\~}"
+  done
+}
+
+# worktrees MAIN: the branch step's choices: new, then each worktree's branch
+# and folder.
+worktrees() {
+  printf '+\t%s+ new branch%s\n' "$TEXT" "$R"
+  git -C "$1" worktree list --porcelain | awk -v dim="$DIM" -v r="$R" '
+    function out() { if (w != "" && !gone) { d = w; sub(/.*\//, "", d); print w "\t" b "  " dim d r }
+                     w = ""; b = ""; gone = 0 }
+    /^worktree /  { out(); w = substr($0, 10) }
+    /^branch /    { b = substr($0, 19) }
+    /^detached/   { b = "(detached)" }
+    /^(bare|prunable)/ { gone = 1 }
+    END           { out() }'
+}
+
+# The panel's palette, so a step looks like the panel it came from.
+read -r BLUE TEXT DIM <<<"$(tmux display -p '#{@agent_c_running} #{@agent_c_text} #{@agent_c_dim}' 2>/dev/null || true)"
+bc="${BLUE:-110}" tc="${TEXT:-250}" dc="${DIM:-247}" fc=238
+B=$'\033[1m' UB=$'\033[22m'
+if [ -n "${NO_COLOR:-}" ]; then TEXT='' DIM='' AMBER='' R=''
+else printf -v TEXT '\033[38;5;%sm' "$tc"; printf -v DIM '\033[38;5;%sm' "$dc"
+     printf -v AMBER '\033[38;5;%sm' "$(tmux display -p '#{@agent_c_input}' 2>/dev/null || echo 214)"; R=$'\033[0m'
+fi
+
+# step PROMPT NOTE [fzf args]: one question, its choices on stdin; prints the
+# query, then the chosen line. NOTE shows above the choices: what went wrong
+# last time, else how to answer.
+step() {
+  local prompt="$1" note="$2"; shift 2
+  fzf --ansi --layout=reverse --cycle --print-query --delimiter=$'\t' --with-nth=2.. \
+    --border=rounded --border-label=' new agent ' --border-label-pos=3 \
+    --info=hidden --pointer='▌' --gutter=' ' --prompt="$prompt" --header="$note" \
+    --footer="$B${TEXT}↵$UB$DIM choose  $B$TEXT""esc$UB$DIM cancel$R" --footer-border=line \
+    --color="fg:$tc,bg:-1,fg+:255,bg+:236,hl:$bc,hl+:$bc" \
+    --color="border:$fc,label:$bc,footer-border:$fc,header:$dc" \
+    --color="pointer:$bc,prompt:$bc,query:255" "$@"
+}
+
+# ask [stay]: the panel's c. Each answer is read off step's output: its first
+# line the query, its second the chosen row's first field.
+ask() {
+  local stay="${1:-}" out rc q sel dir m agent text note agents pane shown
+  cancel() { [ "$stay" = stay ] || exec "$here/agents"; exit 0; }
+  note="${DIM}a folder below, or type a path (/, ~ or .)$R"
+  while :; do
+    rc=0; out="$(dirs | step 'where › ' "$note" --keep-right)" || rc=$?
+    [ "$rc" -le 1 ] || cancel
+    q="$(sed -n 1p <<<"$out")" sel="$(sed -n 2p <<<"$out" | cut -f1)"
+    case "$q" in (/*|'~'*|.*) dir="${q/#\~/$HOME}" ;; (*) dir="$sel" ;; esac
+    [ -n "$dir" ] || { note="${AMBER}✗$R pick a folder, or type a path"; continue; }
+    dir="$(cd "$dir" 2>/dev/null && pwd -P)" && break
+    note="${AMBER}✗$R no such folder: $TEXT$q$R"
+  done
+
+  if m="$(mainof "$dir")"; then
+    note="${DIM}a worktree of $TEXT${m##*/}$DIM, or a new branch$R"
+    while :; do
+      rc=0; out="$(worktrees "$m" | step 'branch › ' "$note")" || rc=$?
+      [ "$rc" -le 1 ] || cancel
+      sel="$(sed -n 2p <<<"$out" | cut -f1)"
+      [ -n "$sel" ] || continue
+      [ "$sel" = + ] || { dir="$sel"; break; }
+      rc=0; out="$(step 'new branch › ' "${DIM}from $TEXT$(git -C "$m" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || echo HEAD)$R" </dev/null)" || rc=$?
+      [ "$rc" -le 1 ] || cancel
+      q="$(sed -n 1p <<<"$out")"
+      [ -n "$q" ] || continue
+      if dir="$(worktree_for "$m" "$q")"; then break; fi
+      note="${AMBER}✗$R $dir"
+    done
+  fi
+
+  # The folder, its end kept when long: that's the part that tells them apart.
+  shown="${dir/#$HOME/\~}"; [ "${#shown}" -le 48 ] || shown="…${shown:${#shown}-47}"
+  agents="$(installed)"
+  [ -n "$agents" ] || die "no claude, copilot or pi on PATH"
+  if [ "$(wc -l <<<"$agents")" -gt 1 ]; then
+    rc=0; out="$(printf '%s\n' "$agents" | awk '{ print $0 "\t" $0 }' | step 'agent › ' "${DIM}in $TEXT$shown$R")" || rc=$?
+    [ "$rc" = 0 ] || cancel
+    agent="$(sed -n 2p <<<"$out" | cut -f1)"
+  else agent="$agents"; fi
+
+  rc=0; out="$(step "$agent › " "${DIM}a first prompt, or ↵ to start without one$R" </dev/null)" || rc=$?
+  [ "$rc" -le 1 ] || cancel
+  text="$(sed -n 1p <<<"$out")"
+
+  pane="$(spawn "$dir" "$agent" "$text")" || die "could not start a session in $dir"
+  "$here/agents" --jump "$pane" "$stay"
+}
+
+case "${1:-}" in
+  ''|stay) ask "${1:-}" ;;
+  --dirs) dirs | cut -f1 ;;
+  --*)
+    dir='' branch='' agent='' text=''
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --dir) dir="${2:-}" ;;
+        --branch) branch="${2:-}" ;;
+        --agent) agent="${2:-}" ;;
+        --prompt) text="${2:-}" ;;
+        *) die "usage: $(basename "$0") --dir DIR [--branch BRANCH] [--agent AGENT] [--prompt TEXT]" ;;
+      esac
+      shift 2 || die "$1 needs a value"
+    done
+    [ -n "$dir" ] || die "--dir is required"
+    dir="$(cd "$dir" 2>/dev/null && pwd -P)" || die "no such directory: $dir"
+    if [ -n "$branch" ]; then
+      m="$(mainof "$dir")" || die "$dir is not in a git repo, so it has no branches"
+      dir="$(worktree_for "$m" "$branch")" || die "$dir"
+    fi
+    [ -n "$agent" ] || agent="$(installed | head -1)"
+    [ -n "$agent" ] || die "no claude, copilot or pi on PATH; name one with --agent"
+    command -v "$agent" >/dev/null 2>&1 || die "$agent not found"
+    spawn "$dir" "$agent" "$text"
+    ;;
+  *) die "usage: $(basename "$0") [stay] | --dir DIR [--branch BRANCH] [--agent AGENT] [--prompt TEXT]" ;;
+esac
