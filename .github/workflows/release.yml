@@ -44,7 +44,7 @@ jobs:
           # released is listed. The commit and its tag push to main together:
           # if main moved meanwhile neither lands, and the run for that newer
           # push releases everything instead.
-          notes="$(./changelog-notes <<<"$msgs")"
+          notes="$(scripts/changelog-notes <<<"$msgs")"
           url="https://github.com/$GITHUB_REPOSITORY"
           link="${last:+$url/compare/$last...$next}"
           entry="$(printf '%s\n\n' "## [$next](${link:-$url/releases/tag/$next}) - $(date -u +%F)" ${notes:+"$notes"})"

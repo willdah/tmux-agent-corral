@@ -1,0 +1,5 @@
+.DS_Store
+.serena/
+.claude/
+.agents/
+skills-lock.json

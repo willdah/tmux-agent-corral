@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install-claude-hooks [--remove] [settings.json]
+# hooks/claude-install [--remove] [settings.json]
 #
 # Wires Claude Code's lifecycle hooks to agent-state so every Claude session
 # shows up in the tmux status line, window tabs and agents panel. Merges into
@@ -10,13 +10,13 @@
 #   --remove   take our hooks out again
 set -euo pipefail
 
-die() { printf '\033[1;31mfail\033[0m %s\n' "$*" >&2; exit 1; }
-ok()  { printf '\033[1;32m ok \033[0m %s\n' "$*" >&2; }
+# shellcheck source=src/common.sh
+. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../src" && pwd)/common.sh"
 
 remove=0
 [ "${1:-}" = --remove ] && { remove=1; shift; }
 f="${1:-$HOME/.claude/settings.json}"
-cmd="$HOME/.config/tmux/agents/agent-state"
+cmd="$AGENTS_HOME/src/agent-state"
 
 command -v jq >/dev/null 2>&1 || die "jq not found (brew install jq)"
 mkdir -p "$(dirname "$f")"
@@ -25,7 +25,7 @@ mkdir -p "$(dirname "$f")"
 tmp="$(mktemp "$f.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
 
-jq --arg cmd "$cmd" --argjson remove "$remove" '
+jq --arg cmd "$cmd" --arg events "$CLAUDE_EVENTS" --argjson remove "$remove" '
   # Ours = any hook whose command runs agent-state, wherever it was installed.
   def ours: (.command // "") | test("agent-state");
   # Drops only the groups and events that held nothing but our hooks; anything
@@ -47,12 +47,8 @@ jq --arg cmd "$cmd" --argjson remove "$remove" '
 
   strip
   | if $remove == 1 then . else
-      add("SessionStart";     "startup|resume|clear";                 "idle")
-    | add("UserPromptSubmit"; null;                                   "running")
-    | add("PostToolUse";      null;                                   "running")
-    | add("Notification";     "permission_prompt|elicitation_dialog"; "input")
-    | add("Stop";             null;                                   "done")
-    | add("SessionEnd";       null;                                   "clear")
+      reduce ($events | split("\n")[] | [splits(" +")]) as [$e, $m, $s]
+        (.; add($e; if $m == "-" then null else $m end; $s))
     end
 ' "$f" >"$tmp" || die "could not update $f (is it valid JSON?)"
 

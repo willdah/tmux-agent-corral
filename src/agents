@@ -35,7 +35,8 @@ set -euo pipefail
 
 self="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
-die() { printf '\033[1;31mfail\033[0m %s\n' "$*" >&2; exit 1; }
+# shellcheck source=src/common.sh
+. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 # Palette: the state colours come from ~/.tmux.conf (@agent_c_*), so the panel
 # and the status line can't drift apart. Both greys clear 4.5:1 on a dark

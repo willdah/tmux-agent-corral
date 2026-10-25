@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # doctor: checks that tmux-agent-corral is wired up, and says what to fix.
 #
-#   ~/.config/tmux/agents/doctor
+#   ~/.config/tmux/agents/src/doctor
 #
 # Looks at the dependencies, the install at ~/.config/tmux/agents (the path
 # the hooks and key bindings call), the running tmux server (agents.tmux
@@ -11,6 +11,10 @@
 # warning is left. NO_COLOR turns the colours off.
 set -uo pipefail
 
+# shellcheck source=src/common.sh
+. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
+
+# Its own reports, unlike common.sh's: on stdout, and a fail carries on.
 if [ -n "${NO_COLOR:-}" ]; then G='' Y='' RD='' R=''
 else G=$'\033[1;32m' Y=$'\033[1;33m' RD=$'\033[1;31m' R=$'\033[0m'; fi
 bad=0
@@ -18,12 +22,9 @@ ok()   { printf '%s ok %s %s\n' "$G" "$R" "$*"; }
 warn() { printf '%swarn%s %s\n' "$Y" "$R" "$*"; }
 fail() { printf '%sfail%s %s\n' "$RD" "$R" "$*"; bad=1; }
 
-dest="$HOME/.config/tmux/agents"
+dest="$AGENTS_HOME"
 copilot="$HOME/.copilot/hooks/agent-state.json"
 pi="$HOME/.pi/agent/extensions/agent-state.ts"
-
-# atleast <version> <minimum>
-atleast() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
 
 # Dependencies.
 if v="$(tmux -V 2>/dev/null)"; then
@@ -32,27 +33,27 @@ if v="$(tmux -V 2>/dev/null)"; then
 else fail "tmux not found"; fi
 if v="$(fzf --version 2>/dev/null)"; then
   v="${v%% *}"
-  if atleast "$v" 0.71; then ok "fzf $v"; else fail "fzf $v is too old; the panel needs 0.71+"; fi
+  if atleast "$v" "$FZF_MIN"; then ok "fzf $v"; else fail "fzf $v is too old; the panel needs $FZF_MIN+"; fi
 else fail "fzf not found; the panel needs it"; fi
 for c in git jq curl; do
   command -v "$c" >/dev/null 2>&1 || fail "$c not found; the panel needs it"
 done
 
 # The install.
-if [ -x "$dest/agent-state" ] && [ -x "$dest/agents" ]; then
+if [ -x "$dest/src/agent-state" ] && [ -x "$dest/src/agents" ]; then
   ok "installed at $dest$([ -L "$dest" ] && printf ' → %s' "$(cd -P "$dest" && pwd)")"
 else fail "nothing at $dest; run install.sh"; fi
 
 # Each installed agent's hooks, found the way install.sh finds the agent.
 found=0
-if command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude" ]; then
+if has_agent claude; then
   found=1 f="$HOME/.claude/settings.json"
   if ! have="$(jq -r '.hooks // {} | to_entries[]
         | select(any(.value[]?.hooks[]?; (.command // "") | test("agent-state"))) | .key' "$f" 2>/dev/null)"; then
     fail "claude: can't read $f; run install.sh"
   else
     missing=''
-    for e in SessionStart UserPromptSubmit PostToolUse Notification Stop SessionEnd; do
+    for e in $(cut -d" " -f1 <<<"$CLAUDE_EVENTS"); do
       grep -qx "$e" <<<"$have" || missing+=" $e"
     done
     if [ -z "$have" ]; then fail "claude: no hooks in $f; run install.sh"
@@ -72,8 +73,8 @@ link_check() {
   elif [ -L "$2" ]; then fail "$1: $2 is a broken link; run install.sh"
   else fail "$1: no $2; run install.sh"; fi
 }
-if command -v copilot >/dev/null 2>&1 || [ -d "$HOME/.copilot" ]; then found=1; link_check copilot "$copilot"; fi
-if command -v pi >/dev/null 2>&1 || [ -d "$HOME/.pi" ]; then found=1; link_check pi "$pi"; fi
+if has_agent copilot; then found=1; link_check copilot "$copilot"; fi
+if has_agent pi; then found=1; link_check pi "$pi"; fi
 [ "$found" = 1 ] || warn "no Claude Code, Copilot CLI or Pi found; other agents report through agent-state"
 
 # The tmux server.
@@ -83,7 +84,7 @@ if ! tmux info >/dev/null 2>&1; then
 fi
 if tmux show-hooks -g 'pane-focus-in[40]' 2>/dev/null | grep -q agent-state; then ok "tmux has agents.tmux loaded"
 else fail "tmux hasn't loaded agents.tmux; source it from your tmux.conf (see the README)"; fi
-tmux list-keys 2>/dev/null | grep -q '/agents/agents' || warn "no key opens the panel"
+tmux list-keys 2>/dev/null | grep -q '/agents/src/agents' || warn "no key opens the panel"
 tmux show -gv status-right 2>/dev/null | grep -qF '@agents_status' ||
   warn 'status-right has no #{E:@agents_status}, so the status line shows no marks'
 tmux show -gv window-status-format 2>/dev/null | grep -qF '@agent_tab' ||

@@ -4,7 +4,7 @@
 # status line and tabs.
 set -euo pipefail
 
-here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d)"
 proj="$tmp/smokeproj"; mkdir "$proj"   # not a git repo: the project is the directory
 conf="$tmp/tmux.conf"
@@ -29,14 +29,14 @@ TMUX="$(t display -p '#{socket_path}'),0,0"; export TMUX
 id() { t display -p -t "$1" '#{pane_id}'; }
 a=$(id work:1.1) b=$(id work:1.2) c=$(id work:2.1) d=$(id side:1.1) shell=$(id side:2.1)
 
-TMUX_PANE=$a "$here/agent-state" running </dev/null
-TMUX_PANE=$b "$here/agent-state" input   </dev/null
-TMUX_PANE=$c "$here/agent-state" done    </dev/null
-TMUX_PANE=$d "$here/agent-state" input   </dev/null
-TMUX_PANE=$shell "$here/agent-state" running </dev/null   # bare shell: stale
+TMUX_PANE=$a "$here/src/agent-state" running </dev/null
+TMUX_PANE=$b "$here/src/agent-state" input   </dev/null
+TMUX_PANE=$c "$here/src/agent-state" done    </dev/null
+TMUX_PANE=$d "$here/src/agent-state" input   </dev/null
+TMUX_PANE=$shell "$here/src/agent-state" running </dev/null   # bare shell: stale
 
 since="$(t display -p -t "$b" '#{@agent_since}')"
-sleep 1; TMUX_PANE=$b "$here/agent-state" input </dev/null
+sleep 1; TMUX_PANE=$b "$here/src/agent-state" input </dev/null
 [ "$(t display -p -t "$b" '#{@agent_since}')" = "$since" ] || fail "repeat state reset @agent_since"
 
 # listen: start a waiter on the agents channel ($w) that is really waiting,
@@ -50,59 +50,59 @@ listen() {
 
 # A change wakes the panel's waiter on the agents channel.
 listen
-TMUX_PANE=$a "$here/agent-state" idle </dev/null; sleep 0.3
+TMUX_PANE=$a "$here/src/agent-state" idle </dev/null; sleep 0.3
 kill -0 "$w" 2>/dev/null && { kill "$w"; fail "agent-state did not signal the agents channel"; }
-TMUX_PANE=$a "$here/agent-state" running </dev/null
+TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 
 # The list only reads: a stale pane stays until sweep clears every field of
 # it, and only of panes back at a bare shell. A shell with something running
 # under it (a wrapper) is a live agent.
-"$here/agents" --rows | grep -q "	$shell	" || fail "rows hid a stale pane before any sweep"
+"$here/src/agents" --rows | grep -q "	$shell	" || fail "rows hid a stale pane before any sweep"
 wrap="$(t new-window -d -P -F '#{pane_id}' -t side: "bash -c 'sleep 600'")"
-TMUX_PANE=$wrap "$here/agent-state" running </dev/null
+TMUX_PANE=$wrap "$here/src/agent-state" running </dev/null
 t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y \; set -p -t "$shell" @agent_name z
-"$here/agent-state" sweep
+"$here/src/agent-state" sweep
 f='#{@agent}#{@agent_state}#{@agent_since}#{@agent_name}#{@agent_dir}#{@agent_project}'
 [ -z "$(t display -p -t "$shell" "$f")" ] || fail "sweep left state on the stale shell pane: $(t display -p -t "$shell" "$f|#{pane_current_command}|#{pane_pid}")"
 [ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "sweep cleared a live agent"
 [ "$(t display -p -t "$wrap" '#{@agent_state}')" = running ] || fail "sweep cleared a wrapper shell with a child"
 t kill-pane -t "$wrap"
 # --rows: eight tab-separated fields per agent, rank and since leading.
-r="$("$here/agents" --rows | grep "	$b	")"
+r="$("$here/src/agents" --rows | grep "	$b	")"
 [ "$(printf '%s' "$r" | awk -F'\t' '{print NF, $1, $2, $3, $4, $5, $6, $7, $8}')" = "8 0 $since $b input claude smokeproj work work" ] || fail "rows record: $r"
-order="$("$here/agents" --rows | cut -f3 | tr '\n' ' ')"
+order="$("$here/src/agents" --rows | cut -f3 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
 # Grouped: a heading per session, the session with the most urgent row first
 # (b and d wait from the same second, so either), each in the usual order; an untitled row names its directory, not the
 # session its heading shows.
-t set -g @agents_group off; "$here/agents" --group
+t set -g @agents_group off; "$here/src/agents" --group
 [ "$(t show -gv @agents_group)" = on ] || fail "--group did not turn grouping on"
-order="$("$here/agents" --rows | cut -f3 | tr '\n' ' ')"
+order="$("$here/src/agents" --rows | cut -f3 | tr '\n' ' ')"
 case "$order" in "-work $b $c $a -side $d "|"-side $d -work $b $c $a ") ;; *) fail "grouped order: $order" ;; esac
-r="$("$here/agents" --rows | awk -F'\t' '$3 == "-work" { print NF, $1, $4, $8 }')"
+r="$("$here/src/agents" --rows | awk -F'\t' '$3 == "-work" { print NF, $1, $4, $8 }')"
 [ "$r" = '8 H 1 1 0 1 work' ] || fail "heading record: $r"
-h="$(NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list | grep '^-work' | cut -f2)"
+h="$(NO_COLOR=1 FZF_COLUMNS=40 "$here/src/agents" --list | grep '^-work' | cut -f2)"
 [ "$h" = $' \e[1mwork\e[22m ──────────────────── ▲1 ✓1 ●1' ] || fail "group heading: $h"   # bold stays under NO_COLOR
-h="$(NO_COLOR=1 FZF_COLUMNS=60 "$here/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
+h="$(NO_COLOR=1 FZF_COLUMNS=60 "$here/src/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
 [ "${#h}" -le 57 ] || fail "group heading wider than the 64-column dock: $h"
-NO_COLOR=1 FZF_COLUMNS=10 "$here/agents" --list >/dev/null || fail "grouped list failed on a narrow panel"
+NO_COLOR=1 FZF_COLUMNS=10 "$here/src/agents" --list >/dev/null || fail "grouped list failed on a narrow panel"
 # The panel's list: NUL-separated, a blank line opening every heading.
-gaps="$("$here/agents" --list0 | tr '\0' '\036' | tr -cd '\036\n' | tr '\036' .)"
+gaps="$("$here/src/agents" --list0 | tr '\0' '\036' | tr -cd '\036\n' | tr '\036' .)"
 case "$gaps" in $'.\n....\n..'|$'.\n..\n....') ;; *) fail "group gaps: $(printf %q "$gaps")" ;; esac
 # A heading is no pane: every action leaves it alone.
 for f in --jump --approve --interrupt --rename; do
-  "$here/agents" "$f" -work </dev/null >/dev/null || fail "$f on a heading"
+  "$here/src/agents" "$f" -work </dev/null >/dev/null || fail "$f on a heading"
 done
-NO_COLOR=1 "$here/agents" --list | grep "^$a" | grep -q 'working    smokeproj' || fail "grouped untitled row"
-[ "$("$here/agents" --list | grep '^-work' | cut -f3)" = work ] || fail "heading's hidden name field"
-h="$(NO_COLOR=1 FZF_COLUMNS=12 "$here/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
+NO_COLOR=1 "$here/src/agents" --list | grep "^$a" | grep -q 'working    smokeproj' || fail "grouped untitled row"
+[ "$("$here/src/agents" --list | grep '^-work' | cut -f3)" = work ] || fail "heading's hidden name field"
+h="$(NO_COLOR=1 FZF_COLUMNS=12 "$here/src/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
 [ "${#h}" -le 7 ] || fail "group heading wider than the panel: $h"
-t set -g @agents_group on; "$here/agents" --group
+t set -g @agents_group on; "$here/src/agents" --group
 [ "$(t show -gv @agents_group)" = off ] || fail "--group did not turn grouping off"
 t select-pane -t "$b" -T '✳ Fix login'
-"$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "title not shown"
-"$here/agents" --list | grep "^$a" | grep -q 'mwork ' || fail "untitled row lost its place"
-"$here/agents" --list | grep "^$a" | grep -q 'msmokeproj ' || fail "project column"
+"$here/src/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "title not shown"
+"$here/src/agents" --list | grep "^$a" | grep -q 'mwork ' || fail "untitled row lost its place"
+"$here/src/agents" --list | grep "^$a" | grep -q 'msmokeproj ' || fail "project column"
 [ -z "$(t display -p -t "$a" '#{@agent_dir}#{@agent_project}')" ] || fail "a failed git lookup was cached"
 # A repo and its worktree both show as the repo, and the answer is cached.
 g() { git -C "$tmp/repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
@@ -110,43 +110,43 @@ git init -q "$tmp/repo"; g commit -q --allow-empty -m init; g worktree add -q "$
 qs=
 for dir in "$tmp/repo" "$tmp/wt"; do
   q="$(t new-window -d -P -F '#{pane_id}' -t side: -c "$dir" 'sleep 600')"; qs="$qs $q"
-  TMUX_PANE=$q "$here/agent-state" idle </dev/null
-  "$here/agents" --list | grep "^$q" | grep -q 'mrepo ' || fail "project for $dir"
+  TMUX_PANE=$q "$here/src/agent-state" idle </dev/null
+  "$here/src/agents" --list | grep "^$q" | grep -q 'mrepo ' || fail "project for $dir"
   [ "$(t display -p -t "$q" '#{@agent_project}')" = repo ] || fail "project not cached for $dir"
 done
 t set -p -t "$q" @agent_project cached
-"$here/agents" --list | grep "^$q" | grep -q 'mcached ' || fail "project cache not used"
+"$here/src/agents" --list | grep "^$q" | grep -q 'mcached ' || fail "project cache not used"
 t set -p -t "$q" @agent_dir /elsewhere   # as if the agent had moved here from there
-"$here/agents" --list | grep "^$q" | grep -q 'mrepo ' || fail "project cache not refreshed on a new directory"
-for q in $qs; do TMUX_PANE=$q "$here/agent-state" clear </dev/null; done
-plain="$(NO_COLOR=1 "$here/agents" --list)"
+"$here/src/agents" --list | grep "^$q" | grep -q 'mrepo ' || fail "project cache not refreshed on a new directory"
+for q in $qs; do TMUX_PANE=$q "$here/src/agent-state" clear </dev/null; done
+plain="$(NO_COLOR=1 "$here/src/agents" --list)"
 case "$plain" in *$'\033'*) fail "NO_COLOR left colour codes in" ;; esac
 printf '%s\n' "$plain" | grep "^$b" | grep -q '▲ needs you  Fix login' || fail "NO_COLOR row"
 t set -g @agent_c_input 196
-"$here/agents" --list | grep "^$b" | grep -q $'\033\\[38;5;196m' || fail "@agent_c_input not used"
+"$here/src/agents" --list | grep "^$b" | grep -q $'\033\\[38;5;196m' || fail "@agent_c_input not used"
 t set -g @agent_c_input 214
-h="$(NO_COLOR=1 "$here/agents" --list | sed -n 1p)"; case "$h" in "-	 STATE"*" SESSION "*" PROJECT "*" AGE") ;; *) fail "column headings: $h" ;; esac
-NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list >/dev/null || fail "narrow list failed"
-NO_COLOR=1 FZF_COLUMNS=40 "$here/agents" --list | sed -n 1p | grep -q PROJECT && fail "narrow headings kept the project"
+h="$(NO_COLOR=1 "$here/src/agents" --list | sed -n 1p)"; case "$h" in "-	 STATE"*" SESSION "*" PROJECT "*" AGE") ;; *) fail "column headings: $h" ;; esac
+NO_COLOR=1 FZF_COLUMNS=40 "$here/src/agents" --list >/dev/null || fail "narrow list failed"
+NO_COLOR=1 FZF_COLUMNS=40 "$here/src/agents" --list | sed -n 1p | grep -q PROJECT && fail "narrow headings kept the project"
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
   [ "${#row}" -le 57 ] || fail "row wider than the 64-column dock: $row"
-done < <(FZF_COLUMNS=60 "$here/agents" --list)
+done < <(FZF_COLUMNS=60 "$here/src/agents" --list)
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
   case "$row" in *smokeproj*|*PROJECT*) fail "narrow row kept the project: $row" ;; esac
   [ "${#row}" -le 35 ] || fail "row wider than a 42-column panel: $row"
-done < <(FZF_COLUMNS=40 "$here/agents" --list)
-"$here/agents" --rename "$b" 'Login → OAuth'
-"$here/agents" --list | grep "^$b" | grep -q 'mLogin → OAuth ' || fail "rename not shown"
-"$here/agents" --rename "$b"
-"$here/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "empty rename did not reset"
+done < <(FZF_COLUMNS=40 "$here/src/agents" --list)
+"$here/src/agents" --rename "$b" 'Login → OAuth'
+"$here/src/agents" --list | grep "^$b" | grep -q 'mLogin → OAuth ' || fail "rename not shown"
+"$here/src/agents" --rename "$b"
+"$here/src/agents" --list | grep "^$b" | grep -q 'mFix login' || fail "empty rename did not reset"
 # The inline fields, as fzf drives them through --key. n pre-fills the row's
 # full name, the list's hidden third field; ↵ on it untouched must not freeze
 # the title as a name.
 k() { FZF_PROMPT="$1" FZF_QUERY="${2:-}" AGENTS_ENTER=jump AGENTS_FOOTER=keys \
-  AGENTS_M=open-m AGENTS_N=open-n AGENTS_D=open-d "$here/agents" --key "${@:3}"; }
-shown="$("$here/agents" --list | grep "^$b" | cut -f3)"; [ "$shown" = "Fix login" ] || fail "hidden name field: $shown"
+  AGENTS_M=open-m AGENTS_N=open-n AGENTS_D=open-d "$here/src/agents" --key "${@:3}"; }
+shown="$("$here/src/agents" --list | grep "^$b" | cut -f3)"; [ "$shown" = "Fix login" ] || fail "hidden name field: $shown"
 [ "$(k '> ' '' m "$b")" = open-m ] && [ "$(k '> ' '' n "$b")" = open-n ] || fail "m/n did not open on an agent"
 [ -z "$(k '> ' '' m -work)" ] || fail "m opened on a heading"
 [ "$(k '> ' '' n -work)" = open-n ] || fail "n did not open on a heading"
@@ -186,18 +186,18 @@ alive "$kp" && fail "pane not killed"
 k 'kill › ' '' enter "$kp" sleeper | grep -q 'not killed: .*sleeper.* is gone' || fail "kill of a gone pane claimed success"
 [ "$(k '> ' '' enter "$b")" = jump ] && [ "$(k '> ' '' esc)" = abort ] || fail "↵/esc outside a field"
 [ "$(k 'message to X › ' '' esc)" = change-footer:keys ] || fail "esc in a field closed the panel"
-[ "$(k '> ' '' reload)" = "reload-sync($here/agents --list0)" ] || fail "reload outside a field"
+[ "$(k '> ' '' reload)" = "reload-sync($here/src/agents --list0)" ] || fail "reload outside a field"
 [ -z "$(k 'rename X › ' '' reload)$(k 'rename X › ' '' restore)" ] || fail "reload/restore touched an open field"
 # Other harnesses: the name shows, the title they give themselves doesn't.
-TMUX_PANE=$c "$here/agent-state" running copilot </dev/null
+TMUX_PANE=$c "$here/src/agent-state" running copilot </dev/null
 t select-pane -t "$c" -T 'GitHub Copilot'
-"$here/agents" --list | grep "^$c" | grep -q 'mwork .*copilot' || fail "copilot row"
-TMUX_PANE=$c "$here/agent-state" done pi </dev/null
+"$here/src/agents" --list | grep "^$c" | grep -q 'mwork .*copilot' || fail "copilot row"
+TMUX_PANE=$c "$here/src/agent-state" done pi </dev/null
 t select-pane -t "$c" -T "π - $(basename "$(t display -p -t "$c" '#{pane_current_path}')")"
-"$here/agents" --list | grep "^$c" | grep -q 'mwork .*pi' || fail "pi row"
+"$here/src/agents" --list | grep "^$c" | grep -q 'mwork .*pi' || fail "pi row"
 # Every row lays out the same columns, whatever its harness, and the caps
 # hold on a wide panel. Widths are pinned: unset, they follow the terminal.
-L() { NO_COLOR=1 FZF_COLUMNS="$1" "$here/agents" --list; }
+L() { NO_COLOR=1 FZF_COLUMNS="$1" "$here/src/agents" --list; }
 wide="$(L 200)" || fail "wide list failed"
 col() { printf '%s\n' "$wide" | grep "^$1" | cut -f2 | awk -v s=" $2 " '{print index($0, s)}'; }
 [ "$(col "$c" pi)" -gt 0 ] && [ "$(col "$c" pi)" = "$(col "$a" claude)" ] ||
@@ -226,7 +226,7 @@ case "$tab" in *'▲'*) ;; *) fail "tab: $tab" ;; esac   # marks run in pane ord
 case "$tab" in *'●'*) ;; *) fail "tab: $tab" ;; esac
 
 t set -p -t "$c" @agent_name x
-TMUX_PANE=$c "$here/agent-state" clear </dev/null
+TMUX_PANE=$c "$here/src/agent-state" clear </dev/null
 [ -z "$(t display -p -t "$c" '#{@agent_state}#{@agent_name}#{@agent_dir}#{@agent_project}')" ] || fail "clear left state behind"
 
 # Docked panel: follows windows and sessions, and every window it leaves gets
@@ -245,24 +245,24 @@ g1=$(geo "$w1") g2=$(geo "$w2") gs=$(geo "$s1")
 # apart from any real panel's by a before/after diff.
 waiters() { pgrep -f 'while tmux wait-for agents' | sort || true; }
 before="$(waiters)"
-TMUX_PANE=$shell "$here/agent-state" running </dev/null   # stale again: the panel sweeps on open
-"$here/agents-dock" toggle "$w1"
+TMUX_PANE=$shell "$here/src/agent-state" running </dev/null   # stale again: the panel sweeps on open
+"$here/src/agents-dock" toggle "$w1"
 p="$(t show -gv @agents_dock)"
 [ "$(t display -p -t "$p" '#{window_id}:#{pane_left}')" = "$w1:0" ] || fail "dock not on the left of work:1"
 [ "$(t display -p -t "$p" '#{pane_active}')" = 1 ] || fail "docking did not focus the panel"
 # A state change shows at once, well inside the 10s tick.
 sleep 1.5
 [ -z "$(t display -p -t "$shell" '#{@agent_state}')" ] || fail "the panel did not sweep on open"
-TMUX_PANE=$shell "$here/agent-state" running </dev/null   # and on every 10s tick
+TMUX_PANE=$shell "$here/src/agent-state" running </dev/null   # and on every 10s tick
 sleep 11
 [ -z "$(t display -p -t "$shell" '#{@agent_state}')" ] || fail "the panel's tick did not sweep"
 n="$(t capture-pane -p -t "$p" | grep -c 'needs you')"
-TMUX_PANE=$a "$here/agent-state" input </dev/null; sleep 1
+TMUX_PANE=$a "$here/src/agent-state" input </dev/null; sleep 1
 [ "$(t capture-pane -p -t "$p" | grep -c 'needs you')" -gt "$n" ] || fail "panel did not reload on a state change"
-TMUX_PANE=$a "$here/agent-state" running </dev/null
+TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
 [ -n "$mine" ] || fail "panel has no refresh loop"
-for w in "$w2" "$s1" "$w1"; do "$here/agents-dock" follow "$w"; done
+for w in "$w2" "$s1" "$w1"; do "$here/src/agents-dock" follow "$w"; done
 [ "$(t display -p -t "$p" '#{window_id}')" = "$w1" ] || fail "dock did not follow back to work:1"
 [ "$(geo "$w2")" = "$g2" ] || fail "work:2 layout not restored: $(geo "$w2")"
 [ "$(geo "$s1")" = "$gs" ] || fail "side:1 layout not restored: $(geo "$s1")"
@@ -274,21 +274,21 @@ t list-panes -a -F '#{pane_id}' | grep -qx -- "$p" && fail "q did not close the 
 gone() { for w in $mine; do kill -0 "$w" 2>/dev/null && fail "$1 left refresh loop $w running"; done; return 0; }
 gone q
 # Undocking kills the pane, so the panel never sends its parting signal.
-"$here/agents-dock" toggle "$w1"; sleep 1.5
+"$here/src/agents-dock" toggle "$w1"; sleep 1.5
 mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
-"$here/agents-dock" toggle "$w1"; sleep 0.5
+"$here/src/agents-dock" toggle "$w1"; sleep 0.5
 gone undocking
 
 # The docked panel's title is marked while it has focus and plain once it
 # goes. The focus hooks need a client, so ping by hand.
-t select-window -t "$w1"; "$here/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"; sleep 1.5
+t select-window -t "$w1"; "$here/src/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"; sleep 1.5
 title() { t capture-pane -p -t "$p" | sed -n 1p; }
 title | grep -q '\[ agent-corral \]' || fail "focused panel's title not marked: $(title)"
-t last-pane -t "$w1"; "$here/agents" --ping; sleep 0.5
+t last-pane -t "$w1"; "$here/src/agents" --ping; sleep 0.5
 title | grep -q '─  agent-corral  ─' || fail "unfocused panel's title still marked: $(title)"
-t select-pane -t "$p"; "$here/agents" --ping; sleep 0.5
+t select-pane -t "$p"; "$here/src/agents" --ping; sleep 0.5
 title | grep -q '\[ agent-corral \]' || fail "refocused panel's title not marked: $(title)"
-"$here/agents-dock" toggle "$w1"; sleep 0.5
+"$here/src/agents-dock" toggle "$w1"; sleep 0.5
 
 # Enter in the docked panel: the panel follows to the agent's window and keeps
 # focus, the agent is that window's last pane, and a finished one reads seen.
@@ -298,24 +298,24 @@ title | grep -q '\[ agent-corral \]' || fail "refocused panel's title not marked
 t set-hook -gu 'session-window-changed[40]' \; set-hook -gu 'client-session-changed[40]'
 { echo 'refresh-client -C 160x40'; sleep 30; } | t -C attach -t work:1 >/dev/null & cc=$!
 for _ in $(seq 50); do t list-clients | grep -q . && break; sleep 0.1; done
-"$here/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"
-TMUX_PANE=$c "$here/agent-state" done </dev/null
+"$here/src/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"
+TMUX_PANE=$c "$here/src/agent-state" done </dev/null
 landed() { [ "$(t display -p '#{window_id}')" = "$(wid "$1")" ] || fail "$2 did not show the agent"; }
-"$here/agents" --jump "$c" stay
+"$here/src/agents" --jump "$c" stay
 landed "$c" "jump"
 [ "$(t display -p -t "$p" '#{window_id}:#{pane_active}')" = "$w2:1" ] || fail "jump did not keep focus in the docked panel"
 [ "$(t display -p -t "$c" '#{pane_last}')" = 1 ] || fail "jump did not make the agent its window's last pane"
 [ "$(t display -p -t "$c" '#{@agent_state}')" = idle ] || fail "jump did not mark a finished agent seen"
 [ "$(geo "$w1")" = "$g1" ] || fail "work:1 layout not restored after a jump: $(geo "$w1")"
 # Beside the panel there is nothing to move, but the jump still lands.
-t switch-client -t "$w1"; TMUX_PANE=$c "$here/agent-state" done </dev/null
-"$here/agents" --jump "$c" stay
+t switch-client -t "$w1"; TMUX_PANE=$c "$here/src/agent-state" done </dev/null
+"$here/src/agents" --jump "$c" stay
 landed "$c" "jump beside the panel"
 [ "$(t display -p -t "$p" '#{pane_active}')" = 1 ] || fail "jump beside the panel took its focus"
 [ "$(t display -p -t "$c" '#{@agent_state}')" = idle ] || fail "jump beside the panel did not mark the agent seen"
 # Into a window too narrow to share, the panel stays put.
 n="$(t new-window -d -P -F '#{pane_id}' -t work: 'sleep 600')"; t resize-window -t "$n" -x 100
-"$here/agents" --jump "$n" stay
+"$here/src/agents" --jump "$n" stay
 landed "$n" "jump into a narrow window"
 [ "$(t display -p -t "$p" '#{window_id}')" = "$w2" ] || fail "the panel followed into a narrow window"
 t kill-pane -t "$n"
@@ -324,29 +324,29 @@ t kill-pane -t "$n"
 # client's width, and the panel follows. Only a window sized by hand, like
 # the narrow one above, keeps its own.
 [ "$(t display -p -t "$d" '#{window_width}')" = 80 ] || fail "side is not at its unvisited size"
-"$here/agents" --jump "$d" stay
+"$here/src/agents" --jump "$d" stay
 landed "$d" "jump into an unvisited session"
 [ "$(t display -p -t "$p" '#{window_id}:#{pane_active}')" = "$(wid "$d"):1" ] || fail "jump into an unvisited session lost the panel"
 [ "$(t display -p -t "$p" '#{pane_width}')" = 64 ] || fail "panel not 64 wide after the window took the client's size: $(t display -p -t "$p" '#{pane_width}')"
 # Into a zoomed window the panel can't follow, so the agent gets focus.
-"$here/agents-dock" toggle "$w2"; "$here/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"
+"$here/src/agents-dock" toggle "$w2"; "$here/src/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"
 z="$(t split-window -d -P -F '#{pane_id}' -t "$c" 'sleep 600')"; t resize-pane -Z -t "$c"
-t switch-client -t "$w1"; TMUX_PANE=$c "$here/agent-state" done </dev/null
-"$here/agents" --jump "$c" stay
+t switch-client -t "$w1"; TMUX_PANE=$c "$here/src/agent-state" done </dev/null
+"$here/src/agents" --jump "$c" stay
 landed "$c" "jump into a zoomed window"
 [ "$(t display -p -t "$p" '#{window_id}')" = "$w1" ] || fail "the panel followed into a zoomed window"
 [ "$(t display -p -t "$c" '#{pane_active}#{window_zoomed_flag}')" = 11 ] || fail "jump into a zoomed window did not focus the agent"
 [ "$(t display -p -t "$c" '#{@agent_state}')" = idle ] || fail "jump into a zoomed window did not mark the agent seen"
 t kill-pane -t "$z"
 # The popup's jump focuses the agent.
-"$here/agents" --jump "$b"
+"$here/src/agents" --jump "$b"
 [ "$(t display -p '#{pane_id}')" = "$b" ] || fail "popup jump did not focus the agent"
-"$here/agents-dock" toggle "$w1"
+"$here/src/agents-dock" toggle "$w1"
 # With nothing docked, the docked jump still lands.
-t switch-client -t "$w1"; "$here/agents" --jump "$c" stay
+t switch-client -t "$w1"; "$here/src/agents" --jump "$c" stay
 landed "$c" "jump with no panel docked"
 kill "$cc" 2>/dev/null || true
-TMUX_PANE=$c "$here/agent-state" clear </dev/null
+TMUX_PANE=$c "$here/src/agent-state" clear </dev/null
 t source-file "$here/agents.tmux"
 
 # Seeing a finished agent dims it, and wakes the panel: the hook calls
@@ -366,67 +366,67 @@ kill -0 "$w" 2>/dev/null || fail "focus hook signalled without a change"
 kill "$w"; wait "$w" 2>/dev/null || true
 t set -pu -t "$cur" @agent_state \; set -pu -t "$cur" @agent_since
 # seen leaves a waiting agent, and a gone pane, alone.
-"$here/agent-state" seen "$b" && [ "$(t display -p -t "$b" '#{@agent_state}')" = input ] || fail "seen touched a waiting agent"
-"$here/agent-state" seen %999 || fail "seen on a gone pane failed"
+"$here/src/agent-state" seen "$b" && [ "$(t display -p -t "$b" '#{@agent_state}')" = input ] || fail "seen touched a waiting agent"
+"$here/src/agent-state" seen %999 || fail "seen on a gone pane failed"
 
 # x: a working Copilot gets C-c once and reads idle, so a second x is refused
 # (another C-c would quit it); any other agent gets Escape, and reads idle too.
 cp="$(t new-window -d -P -F '#{pane_id}' -t side: "sh -c 'trap \"echo GOT_CC\" INT; while :; do sleep 0.2; done'")"
-TMUX_PANE=$cp "$here/agent-state" running copilot </dev/null
-"$here/agents" --interrupt "$cp"; sleep 0.5
+TMUX_PANE=$cp "$here/src/agent-state" running copilot </dev/null
+"$here/src/agents" --interrupt "$cp"; sleep 0.5
 [ "$(t display -p -t "$cp" '#{@agent_state}')" = idle ] || fail "copilot not idle after x"
-"$here/agents" --interrupt "$cp"; sleep 0.5
+"$here/src/agents" --interrupt "$cp"; sleep 0.5
 [ "$(t capture-pane -p -t "$cp" | grep -c GOT_CC)" = 1 ] || fail "x did not send copilot exactly one C-c"
 ec="$(t new-window -d -P -F '#{pane_id}' -t side: cat)"   # the tty echoes Escape as ^[
-TMUX_PANE=$ec "$here/agent-state" running </dev/null
-"$here/agents" --interrupt "$ec"; sleep 0.3
+TMUX_PANE=$ec "$here/src/agent-state" running </dev/null
+"$here/src/agents" --interrupt "$ec"; sleep 0.3
 t capture-pane -p -t "$ec" | grep -qF '^[' || fail "x sent no Escape"
 # Claude's Escape fires no hook either, so x marks it idle, harness kept, and
 # a second x is refused.
 [ "$(t display -p -t "$ec" '#{@agent_state} #{@agent}')" = 'idle claude' ] || fail "claude not idle after x"
-"$here/agents" --interrupt "$ec"; sleep 0.3
+"$here/src/agents" --interrupt "$ec"; sleep 0.3
 [ "$(t capture-pane -p -t "$ec" | grep -o '\^\[' | wc -l | tr -d ' ')" = 1 ] || fail "x sent a second Escape to an idle agent"
 for q in $cp $ec; do t kill-pane -t "$q"; done
-grep -q sessionStart "$here/copilot-hooks.json" && fail "copilot sessionStart hook is back: it fires after the first prompt"
+grep -q sessionStart "$here/hooks/copilot.json" && fail "copilot sessionStart hook is back: it fires after the first prompt"
 
 # wait: returns once the pane is in a wanted state (input or done when none
 # is named), 1 on the timeout or a pane that is gone.
-TMUX_PANE=$a "$here/agent-state" running </dev/null
-"$here/agent-state" wait "$a" done & wp=$!; sleep 0.3
+TMUX_PANE=$a "$here/src/agent-state" running </dev/null
+"$here/src/agent-state" wait "$a" done & wp=$!; sleep 0.3
 kill -0 "$wp" 2>/dev/null || fail "wait returned before the state changed"
-TMUX_PANE=$a "$here/agent-state" done </dev/null
+TMUX_PANE=$a "$here/src/agent-state" done </dev/null
 for _ in $(seq 20); do kill -0 "$wp" 2>/dev/null || break; sleep 0.1; done
 if wait "$wp"; then :; else fail "wait did not return 0 on done"; fi
-"$here/agent-state" wait "$b" || fail "wait with no state did not take input"
-"$here/agent-state" wait "$a" input --timeout 1 && fail "wait did not time out"
-"$here/agent-state" wait %999 done && fail "wait did not fail on a missing pane"
-"$here/agent-state" wait "$a" done --timeout x && fail "wait took a bad timeout"
+"$here/src/agent-state" wait "$b" || fail "wait with no state did not take input"
+"$here/src/agent-state" wait "$a" input --timeout 1 && fail "wait did not time out"
+"$here/src/agent-state" wait %999 done && fail "wait did not fail on a missing pane"
+"$here/src/agent-state" wait "$a" done --timeout x && fail "wait took a bad timeout"
 # A caller reading wait's output is not held until the timeout.
-TMUX_PANE=$a "$here/agent-state" running </dev/null
-SECONDS=0; out="$("$here/agent-state" wait "$a" running --timeout 5)"
+TMUX_PANE=$a "$here/src/agent-state" running </dev/null
+SECONDS=0; out="$("$here/src/agent-state" wait "$a" running --timeout 5)"
 [ "$SECONDS" -lt 3 ] && [ -z "$out" ] || fail "wait held its output open for the timer"
 # An agent that ends ends the wait, unless clear is what it waits for.
-"$here/agent-state" wait "$a" done & wp=$!; sleep 0.3
-TMUX_PANE=$a "$here/agent-state" clear </dev/null; sleep 0.3
+"$here/src/agent-state" wait "$a" done & wp=$!; sleep 0.3
+TMUX_PANE=$a "$here/src/agent-state" clear </dev/null; sleep 0.3
 kill -0 "$wp" 2>/dev/null && { kill "$wp"; fail "wait outlived its agent"; }
-"$here/agent-state" wait "$a" clear || fail "wait clear on a gone agent"
-TMUX_PANE=$a "$here/agent-state" running </dev/null
+"$here/src/agent-state" wait "$a" clear || fail "wait clear on a gone agent"
+TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 # prompt: types into a working agent; a pane that is no agent, or one waiting
 # on you, is refused (the text would answer its question).
 pc="$(t new-window -d -P -F '#{pane_id}' -t side: cat)"
-"$here/agent-state" prompt "$pc" hello && fail "prompt accepted an untagged pane"
-TMUX_PANE=$pc "$here/agent-state" input </dev/null
-"$here/agent-state" prompt "$pc" hello && fail "prompt typed into a waiting agent"
-TMUX_PANE=$pc "$here/agent-state" running </dev/null
-"$here/agent-state" prompt "$pc" hello || fail "prompt refused a working agent"
+"$here/src/agent-state" prompt "$pc" hello && fail "prompt accepted an untagged pane"
+TMUX_PANE=$pc "$here/src/agent-state" input </dev/null
+"$here/src/agent-state" prompt "$pc" hello && fail "prompt typed into a waiting agent"
+TMUX_PANE=$pc "$here/src/agent-state" running </dev/null
+"$here/src/agent-state" prompt "$pc" hello || fail "prompt refused a working agent"
 sleep 0.3; t capture-pane -p -t "$pc" | grep -q '^hello$' || fail "prompt text not typed"
 # A finished agent reads running once prompted, so a wait right after does
 # not return on the old done; any tmux target works, and the name survives.
-TMUX_PANE=$pc "$here/agent-state" done pi </dev/null
-"$here/agent-state" prompt "$(t display -p -t "$pc" '#{session_name}:#{window_index}.#{pane_index}')" again || fail "prompt by target"
+TMUX_PANE=$pc "$here/src/agent-state" done pi </dev/null
+"$here/src/agent-state" prompt "$(t display -p -t "$pc" '#{session_name}:#{window_index}.#{pane_index}')" again || fail "prompt by target"
 sleep 0.3; t capture-pane -p -t "$pc" | grep -q '^again$' || fail "prompt by target not typed"
 [ "$(t display -p -t "$pc" '#{@agent_state} #{@agent}')" = 'running pi' ] || fail "prompt did not mark the agent running"
-"$here/agent-state" wait "$pc" done --timeout 1 && fail "wait after prompt returned on the old done"
+"$here/src/agent-state" wait "$pc" done --timeout 1 && fail "wait after prompt returned on the old done"
 t kill-pane -t "$pc"
 # notify: input and done call the notifier with the agent's name, unless a
 # client is looking at that pane; running and idle never do; off is quiet.
@@ -435,22 +435,22 @@ t set -g @agents_notify "$tmp/notify"
 { echo 'refresh-client -C 160x40'; sleep 30; } | t -C attach -t work:1 >/dev/null & nc=$!
 for _ in $(seq 50); do t list-clients | grep -q . && break; sleep 0.1; done
 t select-pane -t "$a"
-"$here/agents" --rename "$d" 'Side quest #{pane_id}'
-TMUX_PANE=$d "$here/agent-state" running </dev/null; TMUX_PANE=$d "$here/agent-state" input </dev/null
-TMUX_PANE=$a "$here/agent-state" done </dev/null   # the client is on this one
-TMUX_PANE=$d "$here/agent-state" running </dev/null; TMUX_PANE=$d "$here/agent-state" idle </dev/null
-TMUX_PANE=$d "$here/agent-state" done </dev/null; sleep 1
+"$here/src/agents" --rename "$d" 'Side quest #{pane_id}'
+TMUX_PANE=$d "$here/src/agent-state" running </dev/null; TMUX_PANE=$d "$here/src/agent-state" input </dev/null
+TMUX_PANE=$a "$here/src/agent-state" done </dev/null   # the client is on this one
+TMUX_PANE=$d "$here/src/agent-state" running </dev/null; TMUX_PANE=$d "$here/src/agent-state" idle </dev/null
+TMUX_PANE=$d "$here/src/agent-state" done </dev/null; sleep 1
 [ "$(LC_ALL=C sort "$nf")" = "$(printf '▲ Side quest #{pane_id} needs you\n✓ Side quest #{pane_id} finished\n' | LC_ALL=C sort)" ] || fail "notify: $(cat "$nf")"
 t set -g @agents_notify off
-TMUX_PANE=$d "$here/agent-state" input </dev/null; sleep 0.3
+TMUX_PANE=$d "$here/src/agent-state" input </dev/null; sleep 0.3
 [ "$(wc -l <"$nf" | tr -d ' ')" = 2 ] || fail "notify off still notified"
 t set -g @agents_notify tmux
-TMUX_PANE=$d "$here/agent-state" done </dev/null || fail "notify tmux failed"
+TMUX_PANE=$d "$here/src/agent-state" done </dev/null || fail "notify tmux failed"
 grep -q '^set -g @agents_notify tmux' "$here/agents.tmux" || fail "agents.tmux default is not tmux"
 t set -g @agents_notify off
 kill "$nc" 2>/dev/null || true
-"$here/agents" --rename "$d"
-TMUX_PANE=$a "$here/agent-state" running </dev/null
+"$here/src/agents" --rename "$d"
+TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 
 # agents-new: a session per agent, named after its folder, the command and
 # prompt typed into its shell; in a repo, --branch makes or reuses a worktree
@@ -458,7 +458,7 @@ TMUX_PANE=$a "$here/agent-state" running </dev/null
 t set -g default-shell /bin/sh
 mkdir -p "$tmp/bin"
 for f in claude copilot; do printf '#!/bin/sh\nprintf "ran:%s"; printf "[%%s]" "$@"; echo\nexec sleep 600\n' "$f" >"$tmp/bin/$f"; chmod +x "$tmp/bin/$f"; done
-new() { "$here/agents-new" "$@"; }
+new() { "$here/src/agents-new" "$@"; }
 said() { for _ in $(seq 30); do t capture-pane -p -t "$1" | grep -qF -- "$2" && return 0; sleep 0.1; done; fail "$1 never showed $2: $(t capture-pane -p -t "$1")"; }
 P() { (cd -P "$1" && pwd); }
 np="$(new --dir "$proj" --agent "$tmp/bin/claude" --prompt "it's \$HOME \"x\"")" || fail "agents-new failed"
@@ -499,7 +499,7 @@ new --dir "$tmp/cl" --branch 'a..b' --agent "$tmp/bin/claude" 2>/dev/null && fai
 # The where step: the running agents' folders, a worktree as its main
 # checkout, then each @agents_roots folder's subfolders.
 mkdir -p "$tmp/roots/one" "$tmp/roots/two" "$tmp/roots/one-worktrees"
-TMUX_PANE=$nb "$here/agent-state" running </dev/null
+TMUX_PANE=$nb "$here/src/agent-state" running </dev/null
 t set -g @agents_roots "$tmp/roots"
 w="$(new --dirs)"
 printf '%s\n' "$w" | grep -qx "$cl" || fail "where: no main checkout for a worktree agent: $w"
@@ -508,17 +508,17 @@ for r in one two; do printf '%s\n' "$w" | grep -qx "$tmp/roots/$r" || fail "wher
 [ "$(printf '%s\n' "$w" | sort | uniq -d)" = '' ] || fail "where: repeats: $w"
 printf '%s\n' "$w" | grep -q 'one-worktrees' && fail "where: listed a worktrees folder: $w"
 t set -g @agents_roots ''
-TMUX_PANE=$nb "$here/agent-state" clear </dev/null
+TMUX_PANE=$nb "$here/src/agent-state" clear </dev/null
 for q in $np $np2 $np3 $nb $nb2 $nb3; do t kill-pane -t "$q"; done
 t set -gu default-shell
 
 # No agents left: the panel says so instead of going blank.
-for p in $a $b $d; do TMUX_PANE=$p "$here/agent-state" clear </dev/null; done
-"$here/agents" --list | grep -q 'no agents yet' || fail "empty state"
+for p in $a $b $d; do TMUX_PANE=$p "$here/src/agent-state" clear </dev/null; done
+"$here/src/agents" --list | grep -q 'no agents yet' || fail "empty state"
 # fzf pins the first line, so the headings must still lead or the empty row
 # becomes the header.
-[ "$("$here/agents" --list | sed -n 1p | grep -c SESSION)$("$here/agents" --list | wc -l | tr -d ' ')" = 12 ] || fail "empty state lost its headings"
-NO_COLOR=1 "$here/agents" --list | grep -q $'\033' && fail "NO_COLOR left colour codes in the empty state"
+[ "$("$here/src/agents" --list | sed -n 1p | grep -c SESSION)$("$here/src/agents" --list | wc -l | tr -d ' ')" = 12 ] || fail "empty state lost its headings"
+NO_COLOR=1 "$here/src/agents" --list | grep -q $'\033' && fail "NO_COLOR left colour codes in the empty state"
 
 # install.sh, in a throwaway home with no tmux server to reload: the tmux.conf
 # block goes in once, and --remove takes out only that.
@@ -536,14 +536,14 @@ inst; inst
 jq -e '.hooks.Stop[] | select(.hooks[0].command == "echo mine")' "$h/.claude/settings.json" >/dev/null || fail "install dropped the user's claude hook"
 [ -L "$h/.copilot/hooks/agent-state.json" ] || fail "install.sh did not link the copilot hooks"
 [ -L "$h/.pi/agent/extensions/agent-state.ts" ] || fail "install.sh did not link the pi extension"
-jq empty "$here/copilot-hooks.json" || fail "copilot-hooks.json is not valid JSON"
+jq empty "$here/hooks/copilot.json" || fail "hooks/copilot.json is not valid JSON"
 # doctor, on that install and this server: all good; then each break is named.
-doc() { out="$(NO_COLOR=1 HOME="$h" "$here/doctor" 2>&1)"; }
+doc() { out="$(NO_COLOR=1 HOME="$h" "$here/src/doctor" 2>&1)"; }
 doc || fail "doctor failed on a good install: $out"
 case "$out" in *fail*|*warn*) fail "doctor complained about a good install: $out" ;; esac
 ag="$(t new-window -d -P -F '#{pane_id}' -t side: "bash -c 'exec -a claude sleep 600'")"
 doc; case "$out" in *"warn $ag "*"runs claude but reports nothing"*) ;; *) fail "doctor missed a silent agent: $out" ;; esac
-TMUX_PANE=$ag "$here/agent-state" running </dev/null
+TMUX_PANE=$ag "$here/src/agent-state" running </dev/null
 doc; case "$out" in *"reports nothing"*) fail "doctor flagged a reporting agent: $out" ;; esac
 t kill-pane -t "$ag"
 t set -g @agents_notify /no/such/notifier
@@ -574,7 +574,7 @@ out="$(env -u TMUX HOME="$h" TMUX_TMPDIR="$tmp" "$h/.config/tmux/agents/install.
 
 # The release's changelog entry: a merge body is the PR title, footers count,
 # repeats collapse, and docs-only history gives no sections.
-notes="$("$here/changelog-notes" <<'MSGS'
+notes="$("$here/scripts/changelog-notes" <<'MSGS'
 Merge pull request #10 from x/pr
 
 feat: panel shows cost
@@ -604,6 +604,6 @@ want='### Added
 - handle links'
 [ "$notes" = "$want" ] || fail "changelog-notes gave:
 $notes"
-[ -z "$("$here/changelog-notes" <<<'docs: d')" ] || fail "changelog-notes listed a docs commit"
+[ -z "$("$here/scripts/changelog-notes" <<<'docs: d')" ] || fail "changelog-notes listed a docs commit"
 
 echo ok

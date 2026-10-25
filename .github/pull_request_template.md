@@ -3,4 +3,4 @@
 ## What and why
 
 ## Checked
-- [ ] `./smoke-test` prints `ok`
+- [ ] `scripts/smoke-test` prints `ok`

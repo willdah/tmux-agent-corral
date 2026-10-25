@@ -77,7 +77,7 @@ The `-a` appends to whatever you have. If the marks land in the wrong place, put
 ### Check the setup
 
 ```sh
-~/.config/tmux/agents/doctor
+~/.config/tmux/agents/src/doctor
 ```
 
 It checks the dependencies, each agent's hooks, that tmux has `agents.tmux` loaded and the marks in its status line and tabs, and the notifier, and names any agent running in tmux that reports nothing. It only reads, and says what to fix.
@@ -156,10 +156,10 @@ The hooks are registered at index `[40]` (`session-window-changed`, `client-sess
 The protocol is one script. `agent-state <input|running|done|idle|clear> [harness]` tags the pane it runs in (`$TMUX_PANE`) with `@agent_state`, `@agent_since` and `@agent`. The state lives in pane options, so it disappears with the pane. Call it from any harness's hooks or a wrapper:
 
 ```sh
-~/.config/tmux/agents/agent-state running codex
+~/.config/tmux/agents/src/agent-state running codex
 ```
 
-`copilot-hooks.json`, `pi-agent-state.ts` and `install-claude-hooks` show how the built-in ones do it.
+`hooks/copilot.json`, `hooks/pi.ts` and `hooks/claude-install` show how the built-in ones do it.
 
 ### Scripting
 
@@ -203,7 +203,7 @@ agents --rows | awk -F'\t' '$4 == "input" { print $3 }'   # every pane waiting o
 <details>
 <summary><b>An agent isn't showing up.</b></summary>
 
-Run `~/.config/tmux/agents/doctor`: it names agents that run but report nothing, and hooks that are missing. Agents that were already running when you installed need a restart to pick up the hooks. The agent also has to run inside a tmux pane: `agent-state` reads `$TMUX_PANE`, and without it the script does nothing.
+Run `~/.config/tmux/agents/src/doctor`: it names agents that run but report nothing, and hooks that are missing. Agents that were already running when you installed need a restart to pick up the hooks. The agent also has to run inside a tmux pane: `agent-state` reads `$TMUX_PANE`, and without it the script does nothing.
 
 </details>
 
@@ -217,7 +217,7 @@ No. `agent-state` always exits 0 and swallows its own errors, so the worst that 
 <details>
 <summary><b>A pane is stuck on <code>●</code> (or anything else).</b></summary>
 
-Usually that's an Escape typed into Claude's pane (see [Known limits](#known-limits)); your next prompt fixes it, and interrupting with `x` from the panel avoids it. To clear it by hand, run `~/.config/tmux/agents/agent-state clear` in that pane. Closing the pane also clears it, because the state lives in the pane.
+Usually that's an Escape typed into Claude's pane (see [Known limits](#known-limits)); your next prompt fixes it, and interrupting with `x` from the panel avoids it. To clear it by hand, run `~/.config/tmux/agents/src/agent-state clear` in that pane. Closing the pane also clears it, because the state lives in the pane.
 
 </details>
 
@@ -257,8 +257,8 @@ Rebind them after the `source-file` line:
 ```tmux
 unbind a
 unbind A
-bind g display-popup -B -E -w 90% -h 85% "~/.config/tmux/agents/agents"
-bind G run-shell "~/.config/tmux/agents/agents-dock toggle '#{window_id}'"
+bind g display-popup -B -E -w 90% -h 85% "~/.config/tmux/agents/src/agents"
+bind G run-shell "~/.config/tmux/agents/src/agents-dock toggle '#{window_id}'"
 ```
 
 </details>
@@ -280,6 +280,6 @@ It's corral, like the _golden_ one. Not like the reef or Rick Grimes shouting at
 ## Development
 
 ```sh
-./smoke-test   # runs everything on a throwaway tmux server; prints ok
+scripts/smoke-test   # runs everything on a throwaway tmux server; prints ok
 vhs demo/demo.tape   # re-records the README GIF to demo/demo.gif (staged agents, needs vhs)
 ```
