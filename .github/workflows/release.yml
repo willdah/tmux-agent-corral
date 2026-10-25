@@ -33,6 +33,8 @@ jobs:
           elif grep -qE '^(fix|perf)(\([^)]+\))?: ' <<<"$msgs"; then bump=patch
           else echo "nothing to release since ${last:-the start}"; exit 0; fi
           IFS=. read -r major minor patch <<<"${last:-0.0.0}"
+          # Before 1.0.0 a breaking change bumps minor; 1.0.0 is cut by hand.
+          if [ "$bump" = major ] && [ "$major" = 0 ]; then bump=minor; fi
           case $bump in
             major) next="$((major + 1)).0.0" ;;
             minor) next="$major.$((minor + 1)).0" ;;
