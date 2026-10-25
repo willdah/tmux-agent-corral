@@ -116,6 +116,8 @@ Inside the panel:
 | `j` / `k` | move down / up |
 | `q` / `Esc` | close |
 
+To move one of the letter keys, name its action: `set -g @agents_panel_key_interrupt X` (the actions are `approve`, `message`, `rename`, `interrupt`, `kill`, `new`, `group`, `preview`, `close`, `reload`, `down` and `up`). The footer follows. An empty value unbinds one. `↵`, `Esc` and the arrows stay as they are.
+
 The panel refreshes the moment an agent changes state, and every 10 seconds to keep the ages current. Visiting a finished agent's pane turns its `✓` into a quiet idle `○`. A `▲` stays until the agent gets its answer.
 
 The docked panel moves into whichever window you switch to. Each window's layout is saved when the panel arrives and restored when it leaves, so your layouts never drift. It stays put in a zoomed window, or one narrower than 128 columns, and catches up on the next switch.

@@ -290,6 +290,22 @@ t select-pane -t "$p"; "$here/src/agents" --ping; sleep 0.5
 title | grep -q '\[ agent-corral \]' || fail "refocused panel's title not marked: $(title)"
 "$here/src/agents-dock" toggle "$w1"; sleep 0.5
 
+# @agents_panel_key_<action> moves a panel key, footer hint and all; empty
+# unbinds it.
+t set -g @agents_panel_key_preview P \; set -g @agents_panel_key_kill '' \; set -g @agents_panel_key_group G
+"$here/src/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"; sleep 1.5
+foot="$(t capture-pane -p -t "$p" | tail -3)"
+grep -q 'P peek' <<<"$foot" || fail "moved key not in the footer: $foot"
+grep -q 'kill' <<<"$foot" && fail "unbound key still in the footer: $foot"
+grp="$(t show -gv @agents_group)"
+t send-keys -t "$p" g; sleep 0.5
+[ "$(t show -gv @agents_group)" = "$grp" ] || fail "g still groups after moving to G"
+t send-keys -t "$p" G; sleep 0.5
+[ "$(t show -gv @agents_group)" != "$grp" ] || fail "G did not group"
+t send-keys -t "$p" G; sleep 0.5
+"$here/src/agents-dock" toggle "$w1"; sleep 0.5
+t set -gu @agents_panel_key_preview \; set -gu @agents_panel_key_kill \; set -gu @agents_panel_key_group
+
 # Enter in the docked panel: the panel follows to the agent's window and keeps
 # focus, the agent is that window's last pane, and a finished one reads seen.
 # switch-client needs a client, so attach a control-mode one. Its hooks would

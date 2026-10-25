@@ -56,6 +56,11 @@ set -goq @agents_group off
 # space-separated (~ works), beside the ones the running agents are in.
 set -goq @agents_roots ""
 
+# The panel's own keys move with @agents_panel_key_<action>: approve (y),
+# message (m), rename (n), interrupt (x), kill (d), new (c), group (g),
+# preview (p), close (q), reload (r), down (j), up (k). Empty unbinds one;
+# ↵, esc and the arrows stay.
+
 # What the panel's c offers to start: one @agents_launch_<name> per command,
 # typed into the new window's shell; its harness is the first word naming
 # one, so a wrapper works (set -g @agents_launch_hr "headroom wrap claude").

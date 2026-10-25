@@ -21,6 +21,7 @@
 #                     its counts by rank in the state field, -<session> as id.
 #
 # Keys: ↵ jump · y approve · m message · n rename · x interrupt · d kill · c new · g group · r refresh · q close
+# (@agents_panel_key_<action> moves one; see the KEYS table in panel).
 #
 # With @agents_group on (g toggles it), the rows sit under a heading per tmux
 # session, each in the usual order. The session holding the most urgent row
@@ -394,24 +395,59 @@ ping() {
 
 panel() {
   command -v fzf >/dev/null 2>&1 || die "fzf not found (brew install fzf)"
-  local watch="${1:-}" enter new preview keys start=''
-  # The docked panel is narrow, so its key hints are shorter.
+  local watch="${1:-}" enter new preview hints=2 start=''   # hints: the KEYS column below
+  # The docked panel is narrow, so its key hints are shorter, and fewer.
   if [ "$watch" = watch ]; then
     start="execute-silent(tmux set -p -t \$TMUX_PANE @agents_port \$FZF_PORT)+transform-border-label($self --label)+"
     enter="execute-silent($self --jump {1} stay)"
     new="execute(${self%/*}/agents-new stay)+reload-sync($self --list0)"
     preview='down,60%,follow,border-top,hidden'
-    keys='↵ jump|y approve|m msg|n name|x stop|d kill|p peek|q close'
+    hints=3
   else
     enter="become($self --jump {1})"
     new="become(${self%/*}/agents-new)"
     preview='down,65%,follow,border-top'
-    keys='↵ jump|y approve|m message|n rename|x interrupt|d kill|c new|g group|p preview|q close'
   fi
-  local footer='' k
-  while IFS= read -r -d '|' k; do
-    footer+="$B$TEXT${k%% *}$UB$DIM ${k#* }  "
-  done <<<"$keys|"
+  local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
+
+  # The action keys, in footer order: action, default key, the popup's hint,
+  # the dock's (- for none). @agents_panel_key_<action> moves one, and empty
+  # unbinds it; binds, footer and the lock below all come from here.
+  local a k hint footer="$B${TEXT}↵$UB$DIM jump  " lock='' binds=()
+  while read -r -a k; do
+    a="${k[0]}"
+    if hint="$(tmux show -gv "@agents_panel_key_$a" 2>/dev/null)"; then k[1]="$hint"; fi
+    [ -n "${k[1]}" ] || continue
+    case "$a" in
+      approve)   binds+=(--bind="${k[1]}:execute-silent($self --approve {1})+reload-sync($self --list0)") ;;
+      message)   binds+=(--bind="${k[1]}:transform($self --key m {1})") ;;
+      rename)    binds+=(--bind="${k[1]}:transform($self --key n {1})") ;;
+      interrupt) binds+=(--bind="${k[1]}:execute-silent($self --interrupt {1})") ;;
+      kill)      binds+=(--bind="${k[1]}:transform($self --key d {1})") ;;
+      new)       binds+=(--bind="${k[1]}:$new") ;;
+      group)     binds+=(--bind="${k[1]}:execute-silent($self --group)+reload-sync($self --list0)") ;;
+      preview)   binds+=(--bind="${k[1]}:toggle-preview+transform-preview-label:$label") ;;
+      close)     binds+=(--bind="${k[1]}:abort") ;;
+      reload)    binds+=(--bind="${k[1]}:reload-sync($self --list0)") ;;
+      down|up)   binds+=(--bind="${k[1]}:$a") ;;
+    esac
+    lock+="${k[1]},"
+    hint="${k[hints]}"
+    [ "$hint" = - ] || footer+="$B$TEXT${k[1]}$UB$DIM $hint  "
+  done <<'KEYS'
+approve   y approve   approve
+message   m message   msg
+rename    n rename    name
+interrupt x interrupt stop
+kill      d kill      kill
+new       c new       -
+group     g group     -
+preview   p preview   peek
+close     q close     close
+reload    r -         -
+down      j -         -
+up        k -         -
+KEYS
 
   # Refresh through fzf's own HTTP port: at once when agent-state signals the
   # agents channel, and every 10s for the ages, after a sweep for agents that
@@ -422,15 +458,13 @@ panel() {
 
   # While a field is open the action letters and ↑↓ type or stay put, so the
   # row being written to can't change underneath.
-  local lock='y,x,m,n,d,c,r,g,p,j,k,q,up,down'
+  lock+='up,down'
   local open="unbind($lock)+disable-search+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
   local close="+clear-query+enable-search+hide-input+change-prompt(> )+rebind($lock)+reload-sync($self --list0)"
   export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
     AGENTS_M="$open+change-query()+transform-prompt($self --key message {3})" \
     AGENTS_N="$open+transform-query(printf %s {3})+transform-prompt($self --key rename {3})" \
     AGENTS_D="unbind($lock)+disable-search+change-prompt(kill › )+transform-footer($self --key kill {3})"
-
-  local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
 
   # The first list loads through reload so it, too, sees $FZF_COLUMNS.
   fzf </dev/null \
@@ -452,16 +486,7 @@ panel() {
     --color="prompt:$bc,query:255" \
     --bind="enter:transform($self --key enter {1} {3})$close" \
     --bind="esc:transform($self --key esc)$close" \
-    --bind="y:execute-silent($self --approve {1})+reload-sync($self --list0)" \
-    --bind="x:execute-silent($self --interrupt {1})" \
-    --bind="m:transform($self --key m {1})" \
-    --bind="n:transform($self --key n {1})" \
-    --bind="d:transform($self --key d {1})" \
-    --bind="c:$new" \
-    --bind="r:reload-sync($self --list0)" \
-    --bind="g:execute-silent($self --group)+reload-sync($self --list0)" \
-    --bind="p:toggle-preview+transform-preview-label:$label" \
-    --bind='j:down,k:up,q:abort' \
+    ${binds[@]+"${binds[@]}"} \
     >/dev/null || true
   # Wake this panel's waiter so it sees fzf gone and exits now, not on the
   # next state change; any other open panel just reloads once.
