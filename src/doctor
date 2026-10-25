@@ -5,7 +5,8 @@
 #
 # Looks at the dependencies, the install at ~/.config/tmux/agents (the path
 # the hooks and key bindings call), the running tmux server (agents.tmux
-# loaded, the marks in the status line and tabs, the notifier), the hooks of
+# loaded, the marks in the status line and tabs, the notifier, the prefix and
+# panel keys, the colours, the launch profiles), the hooks of
 # each agent that is installed, and agents running in tmux that report
 # nothing. It only reads. Exits 1 when something is broken, 0 when at most a
 # warning is left. NO_COLOR turns the colours off.
@@ -66,7 +67,40 @@ if ! tmux info >/dev/null 2>&1; then
 fi
 if tmux show-hooks -g 'pane-focus-in[40]' 2>/dev/null | grep -q agent-state; then ok "tmux has agents.tmux loaded"
 else fail "tmux hasn't loaded agents.tmux; source it from your tmux.conf (see the README)"; fi
-tmux list-keys 2>/dev/null | grep -q '/agents/src/agents' || warn "no key opens the panel"
+# bound <option> <pattern> <what>: the prefix key the option names runs a
+# command matching pattern. Keys are bound as agents.tmux is read, so one set
+# after it isn't; empty binds none on purpose.
+bound() {
+  local k
+  k="$(tmux show -gv "$1" 2>/dev/null)" && [ -n "$k" ] || return 0
+  tmux list-keys -T prefix -- "$k" 2>/dev/null | grep -qE "$2" ||
+    warn "$1 is $k, but prefix $k doesn't $3; set it before the source-file line"
+}
+bound @agents_key 'src/agents$' 'open the panel'
+bound @agents_key_dock 'agents-dock toggle' 'dock the panel'
+# Colours: tmux styles take no bare index, and the panel places only these.
+for o in input running done text dim border; do
+  v="$(tmux show -gv "@agent_c_$o" 2>/dev/null)" || continue
+  case "$v" in
+    ''|*[!0-9]*) fzfcolour x "$v" ||
+                   warn "@agent_c_$o is $v, which the panel can't show, so it uses its default; use colourN, #rrggbb or one of the 16 names" ;;
+    # A reload after upgrading keeps the old default, which was bare.
+    *)           fail "@agent_c_$o is $v; write colour$v (tmux styles take no bare index), or if you never set it, restart tmux" ;;
+  esac
+done
+# Two panel actions on one key: the later bind wins. ↵ and esc are fixed.
+"${BASH_SOURCE[0]%/*}/agents" --keys | awk 'BEGIN { a["enter"] = "jump"; a["esc"] = "close" }
+    { if ($2 in a) print $2, a[$2], $1; else a[$2] = $1 }' |
+  while read -r k one two; do warn "panel keys: $k is both $one and $two"; done
+# A profile whose command isn't on PATH is left out of c's list. The built-in
+# ones go unremarked: you may not have every harness.
+tmux show -g 2>/dev/null | sed -n 's/^@agents_launch_\([^ ]*\) .*/\1/p' | while read -r n; do
+  c="$(tmux show -gv "@agents_launch_$n" 2>/dev/null)"
+  [ "$n" != default ] && [ -n "$c" ] || continue
+  [ "$c" = "$n" ] && [ -f "$HARNESSES/$n/adapter.sh" ] && continue
+  read -r w _ <<<"$c"
+  command -v "${w/#\~/$HOME}" >/dev/null 2>&1 || warn "@agents_launch_$n runs $w, which isn't on PATH, so c doesn't offer it"
+done
 tmux show -gv status-right 2>/dev/null | grep -qF '@agents_status' ||
   warn 'status-right has no #{E:@agents_status}, so the status line shows no marks'
 tmux show -gv window-status-format 2>/dev/null | grep -qF '@agent_tab' ||

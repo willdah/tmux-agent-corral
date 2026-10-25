@@ -614,6 +614,21 @@ t set -g @agents_notify /no/such/notifier
 doc && fail "doctor passed a missing notifier"
 case "$out" in *'fail @agents_notify runs /no/such/notifier'*) ;; *) fail "doctor on the notifier: $out" ;; esac
 t set -g @agents_notify off
+# Settings: a bare colour index (tmux styles refuse it), a colour the panel
+# can't place, two panel actions on one key, a profile off PATH, and a prefix
+# key set too late to be bound.
+t set -g @agent_c_done 108
+doc && fail "doctor passed a bare colour index"
+case "$out" in *'fail @agent_c_done is 108; write colour108'*) ;; *) fail "doctor on a bare colour: $out" ;; esac
+t set -g @agent_c_done darkorange
+doc; case "$out" in *"warn @agent_c_done is darkorange, which the panel can't show"*) ;; *) fail "doctor on an X11 colour: $out" ;; esac
+t set -g @agent_c_done colour108 \; set -g @agents_panel_key_group y
+doc; case "$out" in *'warn panel keys: y is both approve and group'*) ;; *) fail "doctor on a shared panel key: $out" ;; esac
+t set -gu @agents_panel_key_group \; set -g @agents_launch_zz /no/such/agent
+doc; case "$out" in *"warn @agents_launch_zz runs /no/such/agent, which isn't on PATH"*) ;; *) fail "doctor on a profile off PATH: $out" ;; esac
+t set -gu @agents_launch_zz \; set -g @agents_key M-z
+doc; case "$out" in *"warn @agents_key is M-z, but prefix M-z doesn't open the panel"*) ;; *) fail "doctor on a late @agents_key: $out" ;; esac
+t set -g @agents_key a
 rm "$h/.copilot/hooks/agent-state.json"
 doc && fail "doctor passed missing copilot hooks"
 case "$out" in *'fail copilot: no '*) ;; *) fail "doctor on copilot: $out" ;; esac

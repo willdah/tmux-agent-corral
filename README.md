@@ -80,7 +80,7 @@ The `-a` appends to whatever you have. If the marks land in the wrong place, put
 ~/.config/tmux/agents/src/doctor
 ```
 
-It checks the dependencies, each agent's hooks, that tmux has `agents.tmux` loaded and the marks in its status line and tabs, and the notifier, and names any agent running in tmux that reports nothing. It only reads, and says what to fix.
+It checks the dependencies, each agent's hooks, that tmux has `agents.tmux` loaded and the marks in its status line and tabs, the notifier, and your settings (keys that didn't bind or clash, colours it can't use, launch profiles not on PATH), and names any agent running in tmux that reports nothing. It only reads, and says what to fix.
 
 ### Uninstall
 

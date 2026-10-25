@@ -21,7 +21,8 @@
 #                     its counts by rank in the state field, -<session> as id.
 #
 # Keys: ↵ jump · y approve · m message · n rename · x interrupt · d kill · c new · g group · r refresh · q close
-# (@agents_panel_key_<action> moves one; see the KEYS table in panel).
+# (@agents_panel_key_<action> moves one; agents --keys lists them as set:
+# action, key, popup hint, dock hint).
 #
 # With @agents_group on (g toggles it), the rows sit under a heading per tmux
 # session, each in the usual order. The session holding the most urgent row
@@ -384,6 +385,30 @@ ping() {
   [ -n "$port" ] && curl -fs -XPOST "localhost:$port" -d "transform-border-label($self --label)" >/dev/null 2>&1 || true
 }
 
+# keymap: the panel's action keys, in footer order: action, key, the popup's
+# hint, the dock's (- for none). @agents_panel_key_<action> moves one; an
+# empty one is left out, unbound.
+keymap() {
+  local k v
+  while read -r -a k; do
+    if v="$(tmux show -gv "@agents_panel_key_${k[0]}" 2>/dev/null)"; then k[1]="$v"; fi
+    [ -z "${k[1]}" ] || printf '%s %s %s %s\n' "${k[@]}"
+  done <<'KEYS'
+approve   y approve   approve
+message   m message   msg
+rename    n rename    name
+interrupt x interrupt stop
+kill      d kill      kill
+new       c new       -
+group     g group     -
+preview   p preview   peek
+close     q close     close
+reload    r -         -
+down      j -         -
+up        k -         -
+KEYS
+}
+
 panel() {
   command -v fzf >/dev/null 2>&1 || die "fzf not found (brew install fzf)"
   local watch="${1:-}" enter new preview hints=2 start=''   # hints: the KEYS column below
@@ -401,14 +426,10 @@ panel() {
   fi
   local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
 
-  # The action keys, in footer order: action, default key, the popup's hint,
-  # the dock's (- for none). @agents_panel_key_<action> moves one, and empty
-  # unbinds it; binds, footer and the lock below all come from here.
+  # The binds, footer and the lock below all come from keymap.
   local a k hint footer="$B${TEXT}↵$UB$DIM jump  " lock='' binds=()
   while read -r -a k; do
     a="${k[0]}"
-    if hint="$(tmux show -gv "@agents_panel_key_$a" 2>/dev/null)"; then k[1]="$hint"; fi
-    [ -n "${k[1]}" ] || continue
     case "$a" in
       approve)   binds+=(--bind="${k[1]}:execute-silent($self --approve {1})+reload-sync($self --list0)") ;;
       message)   binds+=(--bind="${k[1]}:transform($self --key m {1})") ;;
@@ -425,20 +446,7 @@ panel() {
     lock+="${k[1]},"
     hint="${k[hints]}"
     [ "$hint" = - ] || footer+="$B$TEXT${k[1]}$UB$DIM $hint  "
-  done <<'KEYS'
-approve   y approve   approve
-message   m message   msg
-rename    n rename    name
-interrupt x interrupt stop
-kill      d kill      kill
-new       c new       -
-group     g group     -
-preview   p preview   peek
-close     q close     close
-reload    r -         -
-down      j -         -
-up        k -         -
-KEYS
+  done < <(keymap)
 
   # Refresh through fzf's own HTTP port: at once when agent-state signals the
   # agents channel, and every 10s for the ages, after a sweep for agents that
@@ -493,6 +501,7 @@ case "${1:-}" in
   # the gap before each group is no row j and k have to stop on.
   --list0)     list | awk '/^-[^\t]/ { sub(/\t/, "\t\037") } 1' | tr '\n\037' '\0\n' ;;
   --rows)      rows | tr "$US" '\t' ;;
+  --keys)      keymap ;;
   --label)     label ;;
   --ping)      ping ;;
   --jump)      jump "${2:-}" "${3:-}" ;;
