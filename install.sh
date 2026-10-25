@@ -12,9 +12,9 @@
 #   --no-tmux-conf  leave tmux.conf alone; the README says what to add
 set -euo pipefail
 
-die()  { printf '\033[1;31mfail\033[0m %s\n' "$*" >&2; exit 1; }
-ok()   { printf '\033[1;32m ok \033[0m %s\n' "$*" >&2; }
-warn() { printf '\033[1;33mwarn\033[0m %s\n' "$*" >&2; }
+# Piped in, there is no clone and so no common.sh yet: the bootstrap needs its
+# own die. main sources the rest.
+die() { printf '\033[1;31mfail\033[0m %s\n' "$*" >&2; exit 1; }
 
 repo="https://github.com/willdah/tmux-agent-corral.git"
 dest="$HOME/.config/tmux/agents"
@@ -80,6 +80,8 @@ main() {
 
   [ -f "${BASH_SOURCE[0]:-}" ] || bootstrap "$@"
   here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # shellcheck source=src/common.sh
+  . "$here/src/common.sh"
 
   # tmux reads ~/.tmux.conf, or the XDG one when that is missing.
   conf="$HOME/.tmux.conf"
@@ -104,17 +106,17 @@ main() {
 
   for c in tmux fzf jq curl; do command -v "$c" >/dev/null 2>&1 || die "$c not found$(hint "$c")"; done
   v="$(fzf --version | cut -d' ' -f1)"
-  [ "$(printf '0.71\n%s\n' "$v" | sort -V | head -1)" = 0.71 ] ||
-    die "fzf $v is too old; the panel needs 0.71+ (https://github.com/junegunn/fzf#installation)"
+  atleast "$v" "$FZF_MIN" ||
+    die "fzf $v is too old; the panel needs $FZF_MIN+ (https://github.com/junegunn/fzf#installation)"
 
   # -ef, not =: here is the physical path, and dest may sit under a link
   # (~/.config/tmux kept in a dotfiles repo).
   [ "$dest" -ef "$here" ] || link "$here" "$dest"
 
   # Agent configs are touched only for agents that are installed.
-  if command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude" ]; then "$here/hooks/claude-install"; fi
-  if command -v copilot >/dev/null 2>&1 || [ -d "$HOME/.copilot" ]; then link "$dest/hooks/copilot.json" "$copilot"; fi
-  if command -v pi >/dev/null 2>&1 || [ -d "$HOME/.pi" ]; then link "$dest/hooks/pi.ts" "$pi"; fi
+  if has_agent claude; then "$here/hooks/claude-install"; fi
+  if has_agent copilot; then link "$dest/hooks/copilot.json" "$copilot"; fi
+  if has_agent pi; then link "$dest/hooks/pi.ts" "$pi"; fi
 
   if grep -qs 'agents/agents.tmux' "$conf"; then
     ok "$conf already sources agents.tmux"
