@@ -483,6 +483,33 @@ nw4="$(TMUX_PANE=$a new --dir "$proj" --session new --agent "$tmp/bin/claude")"
 for q in $nw $nw2 $nw3 $nw4; do t kill-pane -t "$q"; done
 new --dir "$tmp/nowhere" --agent "$tmp/bin/claude" 2>/dev/null && fail "agents-new took a missing folder"
 new --dir "$proj" --agent no-such-agent 2>/dev/null && fail "agents-new took a missing agent"
+# A raw command can carry its own arguments.
+nr="$(new --dir "$proj" --agent "$tmp/bin/claude --flag" --prompt go)" || fail "agents-new took no command with arguments"
+said "$nr" 'ran:claude[--flag][--][go]'
+# Launch profiles: @agents_launch_<name> is a command, its harness the first
+# word naming one; empty hides one, as does a command not on PATH. The
+# default leads, then its harness's others, then the other harnesses', then
+# those of none.
+printf '#!/bin/sh\nprintf "ran:aider"; printf "[%%s]" "$@"; echo\nexec sleep 600\n' >"$tmp/bin/aider"; chmod +x "$tmp/bin/aider"
+t set -g @agents_launch_claude '' \; set -g @agents_launch_pi '' \
+  \; set -g @agents_launch_copilot "$tmp/bin/copilot" \
+  \; set -g @agents_launch_yolo "$tmp/bin/claude --yolo" \
+  \; set -g @agents_launch_hr "env HR=1 $tmp/bin/copilot" \
+  \; set -g @agents_launch_zz "$tmp/bin/aider --yes" \
+  \; set -g @agents_launch_gone "/no/such/claude" \
+  \; set -g @agents_launch_default hr
+want="hr	copilot	env HR=1 $tmp/bin/copilot
+copilot	copilot	$tmp/bin/copilot
+yolo	claude	$tmp/bin/claude --yolo
+zz		$tmp/bin/aider --yes"
+[ "$(new --profiles)" = "$want" ] || fail "profiles: $(new --profiles)"
+nr2="$(new --dir "$proj" --agent hr --prompt go)"; said "$nr2" 'ran:copilot[-i][go]'
+nr3="$(new --dir "$proj" --agent zz --prompt go)"; said "$nr3" 'ran:aider[--yes][--][go]'
+nr4="$(new --dir "$proj" --prompt go)"; said "$nr4" 'ran:copilot[-i][go]'   # the default
+new --dir "$proj" --agent gone 2>/dev/null && fail "agents-new took a profile not on PATH"
+for o in claude pi copilot yolo hr zz gone default; do t set -gu "@agents_launch_$o"; done
+t source-file "$here/agents.tmux"
+for q in $nr $nr2 $nr3 $nr4; do t kill-pane -t "$q"; done
 new --dir "$proj" --branch x --agent "$tmp/bin/claude" 2>/dev/null && fail "agents-new made a branch outside a repo"
 git init -q "$tmp/up"; G() { git -C "$1" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "${@:2}"; }
 G "$tmp/up" commit -q --allow-empty -m up

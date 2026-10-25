@@ -45,6 +45,16 @@ set -goq @agents_group off
 # space-separated (~ works), beside the ones the running agents are in.
 set -goq @agents_roots ""
 
+# What the panel's c offers to start: one @agents_launch_<name> per command,
+# typed into the new window's shell; its harness is the first word naming
+# one, so a wrapper works (set -g @agents_launch_hr "headroom wrap claude").
+# Empty hides one. @agents_launch_default names the one listed first, and
+# taken when a script names none; else claude.
+set -goq @agents_launch_claude  claude
+set -goq @agents_launch_copilot copilot
+set -goq @agents_launch_pi      pi
+set -goq @agents_launch_default ""
+
 # How to tell you that an agent needs you or finished, when no client is
 # looking at its pane: tmux (a message in each client looking elsewhere), os
 # (a desktop notification: osascript, or notify-send), off, or a command to

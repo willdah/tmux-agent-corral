@@ -125,7 +125,7 @@ The docked panel moves into whichever window you switch to. Each window's layout
 1. **Where:** the folders your running agents work in (a repo by its main checkout), the subfolders of each folder in `@agents_roots`, or a path you type, starting with `/`, `~` or `.`. It doesn't have to be a repo.
 2. **Worktree**, in a git repo only: the checkout itself (marked `(the checkout)`), one of its worktrees, or `+ new worktree`, which asks for a branch name. The new worktree goes at `<repo>-worktrees/<branch>` (with `/` as `-`), on a new branch made from origin's default branch (or `HEAD` without one), or on that branch if it exists. A worktree has only tracked files, so install dependencies there before building.
 3. **Session:** the tmux session to add the agent's window to: the one you're in (first), any other, or `+ new session`.
-4. **Agent:** whichever of claude, copilot and pi are installed; skipped when there's only one.
+4. **Agent:** a launch profile (see [Launch profiles](#launch-profiles)) whose command is on PATH, by name, harness and command, the default first; skipped when there's only one.
 5. **Prompt:** a first prompt to start it on, or ↵ to start it without one.
 
 The agent starts in a new window named after its folder (a new session is named after it too), and you land on it (the docked panel follows). `esc` at any step goes back to the panel.
@@ -148,6 +148,19 @@ Set any of these in your tmux.conf, before or after the `source-file` line: `age
 `@agents_notify` says how you hear that an agent needs you or finished while no client is looking at its pane: `tmux` (default: a message in every client looking elsewhere), `os` (a desktop notification, through `osascript` or `notify-send`), `off`, or a command of your own, run with the message (`▲ Fix login needs you`) as its one argument.
 
 `NO_COLOR=1` turns the panel's colours off.
+
+### Launch profiles
+
+What `c` offers to start is a list of profiles, one option each: `@agents_launch_<name>` holds a command, typed into the new window's shell as you'd type it. `claude`, `copilot` and `pi` are there by default; add your own, wrappers included:
+
+```tmux
+set -g @agents_launch_yolo    "claude --dangerously-skip-permissions"
+set -g @agents_launch_hr      "headroom wrap claude"
+set -g @agents_launch_default hr   # listed first, and what agents-new takes without --agent
+set -g @agents_launch_pi      ""   # empty hides one
+```
+
+A profile's harness is the first word of its command that names one (`headroom wrap claude` is Claude), which decides how its first prompt is passed (`-i` for Copilot, else `--`). A command of no known harness still starts, with `-- PROMPT` after it. The list shows only profiles whose first word is on PATH, the default first, then the rest of its harness's, then the other harnesses', then those of none. Without `@agents_launch_default`, `claude` leads.
 
 The hooks are registered at index `[40]` (`session-window-changed`, `client-session-changed`, `pane-focus-in`), so they sit alongside your own. `agents.tmux` also turns on `focus-events`.
 
@@ -183,7 +196,7 @@ agents-new --dir DIR [--branch BRANCH] [--session SESSION] [--agent AGENT] [--pr
 p=$(agents-new --dir ~/src/app --branch fix/flaky --agent claude --prompt "find and fix the flaky test") && agent-state wait "$p"
 ```
 
-`--branch` makes or reuses a worktree as `c` does. `--session` adds the window to that session, making it if there is none, or `--session new` gives it a session of its own; without it the window joins the caller's session (outside tmux, a new one). Without `--agent` it takes the first of claude, copilot and pi that is installed. `AGENT` can be any command: it's typed into the session's shell with the prompt as its last argument (Copilot's with `-i`).
+`--branch` makes or reuses a worktree as `c` does. `--session` adds the window to that session, making it if there is none, or `--session new` gives it a session of its own; without it the window joins the caller's session (outside tmux, a new one). `AGENT` names a launch profile, else is a command of its own (`--agent "claude --model opus"`); without it, the default profile. It's typed into the session's shell with the prompt as its last argument (Copilot's with `-i`). `agents-new --profiles` lists the profiles `c` offers, in its order: name, harness, command, tab-separated.
 
 To find a pane, `agents --rows` prints one tab-separated record per agent in the panel's order: rank (0 needs you, 1 finished, 2 idle, 3 working), since (epoch), pane id, state, harness, project, name, session. With grouping on, a heading record leads each session: rank `H`, its counts by rank in the state field, `-<session>` as the id. Two housekeeping verbs round out the record: `agent-state seen PANE` dims a finished agent to idle (the focus hook and the panel's jump call it), and `agent-state sweep` clears every pane whose agent died without saying so (the panel runs it on open and every 10s).
 
