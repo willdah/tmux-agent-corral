@@ -97,6 +97,8 @@ It takes out the hooks, the links and the tmux.conf block.
 | `prefix + a` | agents panel as a popup; `↵` jumps to the agent and closes |
 | `prefix + A` | toggle the docked panel: a full-height pane on the left that follows you to every window and session and keeps focus; `↵` shows the agent, the cursor stays in the panel |
 
+`@agents_key` and `@agents_key_dock` change these two; see the [FAQ](#faq).
+
 Inside the panel:
 
 | Key | Action |
@@ -265,13 +267,12 @@ It sends one Enter, so you get whatever option the agent's prompt has highlighte
 <details>
 <summary><b>I already use <code>prefix + a</code> / <code>prefix + A</code>.</b></summary>
 
-Rebind them after the `source-file` line:
+Pick others **before** the `source-file` line (the keys are bound as it's read); an empty one binds nothing:
 
 ```tmux
-unbind a
-unbind A
-bind g display-popup -B -E -w 90% -h 85% "~/.config/tmux/agents/src/agents"
-bind G run-shell "~/.config/tmux/agents/src/agents-dock toggle '#{window_id}'"
+set -g @agents_key      g
+set -g @agents_key_dock G
+source-file ~/.config/tmux/agents/agents.tmux
 ```
 
 </details>

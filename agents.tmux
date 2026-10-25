@@ -11,8 +11,19 @@
 # here is set only if it isn't yet (set -goq). An empty value turns a thing
 # off.
 
-bind -N "Agents panel"                  a display-popup -B -E -w 90% -h 85% "~/.config/tmux/agents/src/agents"
-bind -N "Agents panel, docked (toggle)" A run-shell "~/.config/tmux/agents/src/agents-dock toggle '#{window_id}'"
+# The prefix keys for the panel and the docked panel. Unlike the rest, set
+# these before the source-file line: they are bound here, once. Empty binds
+# none.
+# shortcut: ; and ~ can't be bound this way (a separator, a home dir); quote
+# them by hand here if anyone wants one. The doctor names a key left unbound.
+set -goq @agents_key      a
+set -goq @agents_key_dock A
+if -F '#{@agents_key}' {
+  run -C 'bind -N "Agents panel" #{q:@agents_key} display-popup -B -E -w 90% -h 85% "~/.config/tmux/agents/src/agents"'
+}
+if -F '#{@agents_key_dock}' {
+  run -C 'bind -N "Agents panel, docked (toggle)" #{q:@agents_key_dock} run-shell "~/.config/tmux/agents/src/agents-dock toggle ##{window_id}"'
+}
 
 # The docked panel follows you to every window and session. Each window gets
 # its own layout back when the panel leaves. Nothing runs while undocked.

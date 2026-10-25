@@ -549,6 +549,18 @@ for p in $a $b $d; do TMUX_PANE=$p "$here/src/agent-state" clear </dev/null; don
 [ "$("$here/src/agents" --list | sed -n 1p | grep -c SESSION)$("$here/src/agents" --list | wc -l | tr -d ' ')" = 12 ] || fail "empty state lost its headings"
 NO_COLOR=1 "$here/src/agents" --list | grep -q $'\033' && fail "NO_COLOR left colour codes in the empty state"
 
+# The prefix keys: @agents_key and @agents_key_dock, set before agents.tmux
+# is sourced; empty binds nothing. Each on a fresh server, as a tmux.conf
+# would be.
+keys() { tmux -L "$sock-k" -f /dev/null new -d \; set -g @x 1 "$@" \; source-file "$here/agents.tmux" \; list-keys -T prefix; tmux -L "$sock-k" kill-server; }
+kb="$(keys)"
+grep -qE -- '-T prefix a +display-popup .*/src/agents$' <<<"$kb" || fail "a does not open the panel: $kb"
+grep -qE -- "-T prefix A +run-shell .*/src/agents-dock toggle '?#\{window_id\}" <<<"$kb" || fail "A does not dock the panel: $kb"
+kb="$(keys \; set -g @agents_key M-a \; set -g @agents_key_dock '')"
+grep -qE -- '-T prefix M-a +display-popup .*/src/agents$' <<<"$kb" || fail "@agents_key not bound: $kb"
+grep -q 'agents-dock' <<<"$kb" && fail "empty @agents_key_dock still bound: $kb"
+grep -qE -- '-T prefix a +display-popup' <<<"$kb" && fail "a still bound with @agents_key set: $kb"
+
 # install.sh, in a throwaway home with no tmux server to reload: the tmux.conf
 # block goes in once, and --remove takes out only that.
 # Claude, Copilot and Pi look installed, and Claude already has a hook of the
