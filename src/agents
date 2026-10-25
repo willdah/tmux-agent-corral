@@ -387,11 +387,14 @@ ping() {
 
 # keymap: the panel's action keys, in footer order: action, key, the popup's
 # hint, the dock's (- for none). @agents_panel_key_<action> moves one; an
-# empty one is left out, unbound.
+# empty one is left out, unbound. fzf splits its lists on , and its binds on
+# :, so a key with either keeps its default (the doctor says so).
 keymap() {
   local k v
   while read -r -a k; do
-    if v="$(tmux show -gv "@agents_panel_key_${k[0]}" 2>/dev/null)"; then k[1]="$v"; fi
+    if v="$(tmux show -gv "@agents_panel_key_${k[0]}" 2>/dev/null)"; then
+      case "$v" in *[,:]*) ;; *) k[1]="$v" ;; esac
+    fi
     [ -z "${k[1]}" ] || printf '%s %s %s %s\n' "${k[@]}"
   done <<'KEYS'
 approve   y approve   approve
@@ -411,14 +414,14 @@ KEYS
 
 panel() {
   command -v fzf >/dev/null 2>&1 || die "fzf not found (brew install fzf)"
-  local watch="${1:-}" enter new preview hints=2 start=''   # hints: the KEYS column below
+  local watch="${1:-}" enter new preview hint_col=2 start=''   # keymap's column of hints
   # The docked panel is narrow, so its key hints are shorter, and fewer.
   if [ "$watch" = watch ]; then
     start="execute-silent(tmux set -p -t \$TMUX_PANE @agents_port \$FZF_PORT)+transform-border-label($self --label)+"
     enter="execute-silent($self --jump {1} stay)"
     new="execute(${self%/*}/agents-new stay)+reload-sync($self --list0)"
     preview='down,60%,follow,border-top,hidden'
-    hints=3
+    hint_col=3
   else
     enter="become($self --jump {1})"
     new="become(${self%/*}/agents-new)"
@@ -444,7 +447,7 @@ panel() {
       down|up)   binds+=(--bind="${k[1]}:$a") ;;
     esac
     lock+="${k[1]},"
-    hint="${k[hints]}"
+    hint="${k[hint_col]}"
     [ "$hint" = - ] || footer+="$B$TEXT${k[1]}$UB$DIM $hint  "
   done < <(keymap)
 

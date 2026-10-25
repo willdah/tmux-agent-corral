@@ -67,6 +67,30 @@ harnesses() {
   for a in "$HARNESSES"/*/adapter.sh; do a="${a%/adapter.sh}"; printf '%s\n' "${a##*/}"; done
 }
 
+# harness_of COMMAND: the built-in harness COMMAND runs: the first of its
+# words named after one, so a wrapper's (headroom wrap claude) counts too.
+# It stops at the first flag: what follows is arguments (aider --model
+# claude). Prints nothing for none.
+harness_of() {
+  local w ws
+  read -r -a ws <<<"$1"
+  for w in ${ws[@]+"${ws[@]}"}; do
+    case "$w" in -*) return 0 ;; esac
+    w="${w##*/}"
+    [ -f "$HARNESSES/$w/adapter.sh" ] && { printf '%s' "$w"; return 0; }
+  done
+  return 0
+}
+
+# runnable COMMAND: its first word is on PATH (~ works).
+runnable() { local w; read -r w _ <<<"$1"; command -v "${w/#\~/$HOME}" >/dev/null 2>&1; }
+
+# launch_names: the launch profiles' names (@agents_launch_<name>, less
+# @agents_launch_default), one per line.
+launch_names() {
+  tmux show -g 2>/dev/null | sed -n 's/^@agents_launch_\([^ ]*\) .*/\1/p' | grep -vx default || true
+}
+
 # adapter <harness>: sets PROMPT (the flag before a first prompt), INTERRUPT
 # (the key that stops a turn), and HOOK and HOOK_LINK (the hook file and where
 # it is linked; empty when the folder's install wires it instead). Fails, and

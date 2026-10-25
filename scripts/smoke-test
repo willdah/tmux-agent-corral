@@ -228,6 +228,12 @@ t set -g @agents_group off
 status="$(t display -p -t "$a" '#{E:status-right}')"
 case "$status" in *'▲▲'*'●'*'✓'*) ;; *) fail "status-right: $status" ;; esac
 case "$status" in *colour214*colour110*colour108*) ;; *) fail "status colours: $status" ;; esac
+t set -g @agent_c_input '#ff8000' \; set -g @agent_c_running brightblue
+status="$(t display -p -t "$a" '#{E:status-right}')"
+case "$status" in *'fg=#ff8000'*'fg=brightblue'*) ;; *) fail "status colours by hex and name: $status" ;; esac
+# A bare index, the old default, is upgraded as agents.tmux is read again.
+t set -g @agent_c_input 214 \; set -g @agent_c_running colour110 \; source-file "$here/agents.tmux"
+[ "$(t show -gv @agent_c_input)" = colour214 ] || fail "bare colour index not upgraded: $(t show -gv @agent_c_input)"
 tab="$(t display -p -t "$a" '#{E:window-status-format}')"
 case "$tab" in *'▲'*) ;; *) fail "tab: $tab" ;; esac   # marks run in pane order
 case "$tab" in *'●'*) ;; *) fail "tab: $tab" ;; esac
@@ -518,16 +524,16 @@ t set -g @agents_launch_claude '' \; set -g @agents_launch_pi '' \
   \; set -g @agents_launch_copilot "$tmp/bin/copilot" \
   \; set -g @agents_launch_yolo "$tmp/bin/claude --yolo" \
   \; set -g @agents_launch_hr "env HR=1 $tmp/bin/copilot" \
-  \; set -g @agents_launch_zz "$tmp/bin/aider --yes" \
+  \; set -g @agents_launch_zz "$tmp/bin/aider --model claude" \
   \; set -g @agents_launch_gone "/no/such/claude" \
   \; set -g @agents_launch_default hr
 want="hr	copilot	env HR=1 $tmp/bin/copilot
 copilot	copilot	$tmp/bin/copilot
 yolo	claude	$tmp/bin/claude --yolo
-zz		$tmp/bin/aider --yes"
+zz		$tmp/bin/aider --model claude"
 [ "$(new --profiles)" = "$want" ] || fail "profiles: $(new --profiles)"
 nr2="$(new --dir "$proj" --agent hr --prompt go)"; said "$nr2" 'ran:copilot[-i][go]'
-nr3="$(new --dir "$proj" --agent zz --prompt go)"; said "$nr3" 'ran:aider[--yes][--][go]'
+nr3="$(new --dir "$proj" --agent zz --prompt go)"; said "$nr3" 'ran:aider[--model][claude][--][go]'   # an argument names no harness
 nr4="$(new --dir "$proj" --prompt go)"; said "$nr4" 'ran:copilot[-i][go]'   # the default
 new --dir "$proj" --agent gone 2>/dev/null && fail "agents-new took a profile not on PATH"
 cp "$tmp/bin/aider" "$tmp/bin/pi"   # on PATH, so only hiding can refuse it
@@ -628,11 +634,20 @@ t set -g @agent_c_done darkorange
 doc; case "$out" in *"warn @agent_c_done is darkorange, which the panel can't show"*) ;; *) fail "doctor on an X11 colour: $out" ;; esac
 t set -g @agent_c_done colour108 \; set -g @agents_panel_key_group y
 doc; case "$out" in *'warn panel keys: y is both approve and group'*) ;; *) fail "doctor on a shared panel key: $out" ;; esac
+# fzf's lists split on , and its binds on :, so neither can be a key.
+t set -g @agents_panel_key_group ,
+[ "$("$here/src/agents" --keys | awk '$1 == "group" { print $2 }')" = g ] || fail "a , key replaced group's g"
+doc; case "$out" in *"warn @agents_panel_key_group is ,, which the panel can't bind"*) ;; *) fail "doctor on a , key: $out" ;; esac
 t set -gu @agents_panel_key_group \; set -g @agents_launch_zz /no/such/agent
 doc; case "$out" in *"warn @agents_launch_zz runs /no/such/agent, which isn't on PATH"*) ;; *) fail "doctor on a profile off PATH: $out" ;; esac
 t set -gu @agents_launch_zz \; set -g @agents_key M-z
 doc; case "$out" in *"warn @agents_key is M-z, but prefix M-z doesn't open the panel"*) ;; *) fail "doctor on a late @agents_key: $out" ;; esac
 t set -g @agents_key a
+# A hook link that resolves, but not to this install's hook (a copy left from
+# before the move to harnesses/).
+ln -sfn "$here/README.md" "$h/.copilot/hooks/agent-state.json"
+doc && fail "doctor passed a copilot link to elsewhere"
+case "$out" in *"fail copilot: $h/.copilot/hooks/agent-state.json points at $here/README.md"*) ;; *) fail "doctor on a stray link: $out" ;; esac
 rm "$h/.copilot/hooks/agent-state.json"
 doc && fail "doctor passed missing copilot hooks"
 case "$out" in *'fail copilot: no '*) ;; *) fail "doctor on copilot: $out" ;; esac

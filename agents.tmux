@@ -48,6 +48,13 @@ set -goq @agent_c_done    colour108   # ✓ finished, not yet looked at
 set -goq @agent_c_text    colour250   # panel greys: raise to ~236/240 on a light theme
 set -goq @agent_c_dim     colour247
 set -goq @agent_c_border  colour238   # the panel's borders and group rules
+# Before 0.15.0 these were bare indexes, which tmux styles refuse: a server
+# that read the old file, or a value set above, gets its colour prefix here.
+if -F '#{m/r:^[0-9]+$,#{@agent_c_input}}'   { set -gF @agent_c_input   'colour#{@agent_c_input}' }
+if -F '#{m/r:^[0-9]+$,#{@agent_c_running}}' { set -gF @agent_c_running 'colour#{@agent_c_running}' }
+if -F '#{m/r:^[0-9]+$,#{@agent_c_done}}'    { set -gF @agent_c_done    'colour#{@agent_c_done}' }
+if -F '#{m/r:^[0-9]+$,#{@agent_c_text}}'    { set -gF @agent_c_text    'colour#{@agent_c_text}' }
+if -F '#{m/r:^[0-9]+$,#{@agent_c_dim}}'     { set -gF @agent_c_dim     'colour#{@agent_c_dim}' }
 
 # The panel groups its rows under each tmux session's name when this is on;
 # g in the panel toggles it.

@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: shellcheck
-        run: shellcheck -S warning $(git grep -lE '^#!/usr/bin/env bash' -- ':!*.md')
+        run: shellcheck -S warning $(git grep -lE '^#!/usr/bin/env bash' -- ':!*.md') src/common.sh harnesses/*/adapter.sh
       - name: JSON
         run: jq empty harnesses/copilot/hooks.json
 

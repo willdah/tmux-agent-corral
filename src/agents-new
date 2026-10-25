@@ -47,22 +47,6 @@ here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # sq TEXT: TEXT quoted for any shell the session might run.
 sq() { local q="'\\''"; printf "'%s'" "${1//\'/$q}"; }
 
-# harness_of COMMAND: the built-in harness COMMAND runs: the first of its
-# words named after one, so a wrapper's (headroom wrap claude) counts too.
-# Prints nothing for none.
-harness_of() {
-  local w ws
-  read -r -a ws <<<"$1"
-  for w in ${ws[@]+"${ws[@]}"}; do
-    w="${w##*/}"
-    [ -f "$HARNESSES/$w/adapter.sh" ] && { printf '%s' "$w"; return 0; }
-  done
-  return 0
-}
-
-# runnable COMMAND: its first word is on PATH (~ works).
-runnable() { local w; read -r w _ <<<"$1"; command -v "${w/#\~/$HOME}" >/dev/null 2>&1; }
-
 # profiles: the launch profiles (@agents_launch_<name>) that can run, in the
 # picker's order, tab-separated: name, harness (empty for none), command. The
 # default (@agents_launch_default, else claude) leads, then the rest of its
@@ -70,8 +54,7 @@ runnable() { local w; read -r w _ <<<"$1"; command -v "${w/#\~/$HOME}" >/dev/nul
 profiles() {
   local n c def
   def="$(tmux show -gv @agents_launch_default 2>/dev/null || true)"
-  tmux show -g 2>/dev/null | sed -n 's/^@agents_launch_\([^ ]*\) .*/\1/p' | while read -r n; do
-    [ "$n" != default ] || continue
+  launch_names | while read -r n; do
     c="$(tmux show -gv "@agents_launch_$n" 2>/dev/null)"
     if [ -n "$c" ] && runnable "$c"; then printf '%s\t%s\t%s\n' "$n" "$(harness_of "$c")" "$c"; fi
   done | awk -F'\t' -v def="$def" '

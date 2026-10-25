@@ -136,7 +136,7 @@ The agent starts in a new window named after its folder (a new session is named 
 
 ## Configure
 
-Set any of these in your tmux.conf, before or after the `source-file` line: `agents.tmux` only fills in what you haven't set. A colour is `colourN` (0 to 255), `#rrggbb`, or one of the 16 names (`red`, `brightred`, …).
+Set any of these in your tmux.conf, before or after the `source-file` line: `agents.tmux` only fills in what you haven't set. A colour is `colourN` (0 to 255), `#rrggbb`, or one of the 16 names (`red`, `brightred`, …). A bare index from before 0.15.0 (`214`) gets its `colour` prefix when it's set before the `source-file` line; after it, write `colour214`.
 
 | Option | Default | Colours |
 |---|---|---|
@@ -165,7 +165,7 @@ set -g @agents_launch_default hr   # listed first, and what agents-new takes wit
 set -g @agents_launch_pi      ""   # empty hides one
 ```
 
-A profile's harness is the first word of its command that names one (`headroom wrap claude` is Claude), which decides how its first prompt is passed (`-i` for Copilot, else `--`). A command of no known harness still starts, with `-- PROMPT` after it. The list shows only profiles whose first word is on PATH, the default first, then the rest of its harness's, then the other harnesses', then those of none. Without `@agents_launch_default`, `claude` leads.
+A profile's harness is the first word of its command, before any flag, that names one (`headroom wrap claude` is Claude; `aider --model claude` is none), which decides how its first prompt is passed (`-i` for Copilot, else `--`). A command of no known harness still starts, with `-- PROMPT` after it. The list shows only profiles whose first word is on PATH, the default first, then the rest of its harness's, then the other harnesses', then those of none. Without `@agents_launch_default`, `claude` leads.
 
 The hooks are registered at index `[40]` (`session-window-changed`, `client-session-changed`, `pane-focus-in`), so they sit alongside your own. `agents.tmux` also turns on `focus-events`.
 
