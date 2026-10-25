@@ -61,9 +61,13 @@ TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 wrap="$(t new-window -d -P -F '#{pane_id}' -t side: "bash -c 'sleep 600'")"
 TMUX_PANE=$wrap "$here/src/agent-state" running </dev/null
 t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y \; set -p -t "$shell" @agent_name z
+# Bare means no child: wait out the shell's startup (Ubuntu's bashrc runs
+# lesspipe and dircolors), which sweep would rightly take for a wrapper's.
+sp="$(t display -p -t "$shell" '#{pane_pid}')"
+for _ in $(seq 50); do pgrep -P "$sp" >/dev/null || break; sleep 0.1; done
 "$here/src/agent-state" sweep
 f='#{@agent}#{@agent_state}#{@agent_since}#{@agent_name}#{@agent_dir}#{@agent_project}'
-[ -z "$(t display -p -t "$shell" "$f")" ] || fail "sweep left state on the stale shell pane: $(t display -p -t "$shell" "$f|#{pane_current_command}|#{pane_pid}")"
+[ -z "$(t display -p -t "$shell" "$f")" ] || fail "sweep left state on the stale shell pane: $(t display -p -t "$shell" "$f|#{pane_current_command}|#{pane_pid}"); its children: $(pgrep -lP "$sp" | tr '\n' ' ')"
 [ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "sweep cleared a live agent"
 [ "$(t display -p -t "$wrap" '#{@agent_state}')" = running ] || fail "sweep cleared a wrapper shell with a child"
 t kill-pane -t "$wrap"
