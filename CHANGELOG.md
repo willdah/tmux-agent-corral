@@ -7,6 +7,30 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.15.0](https://github.com/willdah/tmux-agent-corral/compare/0.14.0...0.15.0) - 2026-10-25
+
+### Added
+
+- column headings on the agent step
+- check the settings
+- move the panel's keys with @agents_panel_key_<action>
+- choose the prefix keys with @agents_key and @agents_key_dock
+- launch profiles
+- settings work before or after sourcing agents.tmux
+
+### Changed
+
+- **Breaking:** user settings for launch commands, keys and colours
+- **Breaking:** colours take any tmux colour, and the border one is settable
+- **Breaking:** a bare index such as `set -g @agent_c_input 214` no
+- **Breaking:** one folder per harness under harnesses/
+- **Breaking:** the Copilot and Pi hooks moved from hooks/ to
+
+### Fixed
+
+- address the settings review
+- a hidden profile stays hidden, and 0 is a key
+
 ## [0.14.0](https://github.com/willdah/tmux-agent-corral/compare/0.13.0...0.14.0) - 2026-10-25
 
 ### Changed
