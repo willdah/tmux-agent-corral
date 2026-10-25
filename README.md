@@ -132,7 +132,7 @@ The agent starts in a new window named after its folder (a new session is named 
 
 ## Configure
 
-Set any of these after the `source-file` line. Values are 256-colour indexes.
+Set any of these in your tmux.conf, before or after the `source-file` line: `agents.tmux` only fills in what you haven't set. Colour values are 256-colour indexes.
 
 | Option | Default | Colours |
 |---|---|---|

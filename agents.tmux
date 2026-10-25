@@ -6,6 +6,10 @@
 # every tagged pane in every session, waiting ones first. The status line and
 # window tabs are yours: this file only defines the formats to put in them
 # (see the README).
+#
+# Your settings can go before or after the source-file line: each default
+# here is set only if it isn't yet (set -goq). An empty value turns a thing
+# off.
 
 bind -N "Agents panel"                  a display-popup -B -E -w 90% -h 85% "~/.config/tmux/agents/src/agents"
 bind -N "Agents panel, docked (toggle)" A run-shell "~/.config/tmux/agents/src/agents-dock toggle '#{window_id}'"
@@ -26,26 +30,26 @@ set-hook -g pane-focus-in[41]  'if -F "#{@agents_dock}" "run-shell -b \"~/.confi
 set-hook -g pane-focus-out[40] 'if -F "#{@agents_dock}" "run-shell -b \"~/.config/tmux/agents/src/agents --ping\""'
 
 # State colours (256-colour indexes), shared by the status formats and the
-# panel. Override any of them after sourcing this file.
-set -g @agent_c_input   214   # ▲ needs you
-set -g @agent_c_running 110   # ● working
-set -g @agent_c_done    108   # ✓ finished, not yet looked at
-set -g @agent_c_text    250   # panel greys: raise to ~236/240 on a light theme
-set -g @agent_c_dim     247
+# panel.
+set -goq @agent_c_input   214   # ▲ needs you
+set -goq @agent_c_running 110   # ● working
+set -goq @agent_c_done    108   # ✓ finished, not yet looked at
+set -goq @agent_c_text    250   # panel greys: raise to ~236/240 on a light theme
+set -goq @agent_c_dim     247
 
 # The panel groups its rows under each tmux session's name when this is on;
 # g in the panel toggles it.
-set -g @agents_group off
+set -goq @agents_group off
 
 # Folders whose subfolders the panel's c offers as places to start an agent,
 # space-separated (~ works), beside the ones the running agents are in.
-set -g @agents_roots ""
+set -goq @agents_roots ""
 
 # How to tell you that an agent needs you or finished, when no client is
 # looking at its pane: tmux (a message in each client looking elsewhere), os
 # (a desktop notification: osascript, or notify-send), off, or a command to
 # run with the message as its argument.
-set -g @agents_notify tmux
+set -goq @agents_notify tmux
 
 # Formats for your status line and tabs. Idle agents stay quiet.
 #   @agents_status  every agent in every session, waiting first: ▲▲●✓

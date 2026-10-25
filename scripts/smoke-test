@@ -446,8 +446,10 @@ TMUX_PANE=$d "$here/src/agent-state" input </dev/null; sleep 0.3
 [ "$(wc -l <"$nf" | tr -d ' ')" = 2 ] || fail "notify off still notified"
 t set -g @agents_notify tmux
 TMUX_PANE=$d "$here/src/agent-state" done </dev/null || fail "notify tmux failed"
-grep -q '^set -g @agents_notify tmux' "$here/agents.tmux" || fail "agents.tmux default is not tmux"
-t set -g @agents_notify off
+grep -q '^set -goq @agents_notify tmux' "$here/agents.tmux" || fail "agents.tmux default is not tmux"
+# A setting made before agents.tmux is sourced survives it.
+t set -g @agents_notify off \; source-file "$here/agents.tmux"
+[ "$(t show -gv @agents_notify)" = off ] || fail "sourcing agents.tmux overwrote @agents_notify"
 kill "$nc" 2>/dev/null || true
 "$here/src/agents" --rename "$d"
 TMUX_PANE=$a "$here/src/agent-state" running </dev/null
