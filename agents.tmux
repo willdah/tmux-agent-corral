@@ -18,10 +18,10 @@
 # them by hand here if anyone wants one. The doctor names a key left unbound.
 set -goq @agents_key      a
 set -goq @agents_key_dock A
-if -F '#{@agents_key}' {
+if -F '#{!=:#{@agents_key},}' {
   run -C 'bind -N "Agents panel" #{q:@agents_key} display-popup -B -E -w 90% -h 85% "~/.config/tmux/agents/src/agents"'
 }
-if -F '#{@agents_key_dock}' {
+if -F '#{!=:#{@agents_key_dock},}' {
   run -C 'bind -N "Agents panel, docked (toggle)" #{q:@agents_key_dock} run-shell "~/.config/tmux/agents/src/agents-dock toggle ##{window_id}"'
 }
 

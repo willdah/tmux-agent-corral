@@ -530,6 +530,8 @@ nr2="$(new --dir "$proj" --agent hr --prompt go)"; said "$nr2" 'ran:copilot[-i][
 nr3="$(new --dir "$proj" --agent zz --prompt go)"; said "$nr3" 'ran:aider[--yes][--][go]'
 nr4="$(new --dir "$proj" --prompt go)"; said "$nr4" 'ran:copilot[-i][go]'   # the default
 new --dir "$proj" --agent gone 2>/dev/null && fail "agents-new took a profile not on PATH"
+cp "$tmp/bin/aider" "$tmp/bin/pi"   # on PATH, so only hiding can refuse it
+PATH="$tmp/bin:$PATH" new --dir "$proj" --agent pi 2>/dev/null && fail "agents-new started a hidden profile"
 for o in claude pi copilot yolo hr zz gone default; do t set -gu "@agents_launch_$o"; done
 t source-file "$here/agents.tmux"
 for q in $nr $nr2 $nr3 $nr4; do t kill-pane -t "$q"; done
@@ -583,6 +585,8 @@ kb="$(keys \; set -g @agents_key M-a \; set -g @agents_key_dock '')"
 grep -qE -- '-T prefix M-a +display-popup .*/src/agents$' <<<"$kb" || fail "@agents_key not bound: $kb"
 grep -q 'agents-dock' <<<"$kb" && fail "empty @agents_key_dock still bound: $kb"
 grep -qE -- '-T prefix a +display-popup' <<<"$kb" && fail "a still bound with @agents_key set: $kb"
+kb="$(keys \; set -g @agents_key 0)"   # a format's false, but a key
+grep -qE -- '-T prefix 0 +display-popup .*/src/agents$' <<<"$kb" || fail "@agents_key 0 not bound: $kb"
 
 # install.sh, in a throwaway home with no tmux server to reload: the tmux.conf
 # block goes in once, and --remove takes out only that.

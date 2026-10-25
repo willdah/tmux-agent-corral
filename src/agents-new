@@ -283,8 +283,10 @@ case "${1:-}" in
       agent="$(profiles | head -1 | cut -f3)"
       [ -n "$agent" ] || die "no agent to start: no @agents_launch_* command is on PATH; name one with --agent"
     else
-      c="$(tmux show -gv "@agents_launch_$agent" 2>/dev/null || true)"
-      [ -z "$c" ] || agent="$c"
+      if c="$(tmux show -gv "@agents_launch_$agent" 2>/dev/null)"; then
+        [ -n "$c" ] || die "$agent is hidden: @agents_launch_$agent is empty"
+        agent="$c"
+      fi
     fi
     runnable "$agent" || die "${agent%% *} not found"
     spawn "$dir" "$agent" "$text" "$sess"

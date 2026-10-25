@@ -82,7 +82,8 @@ bound @agents_key_dock 'agents-dock toggle' 'dock the panel'
 for o in input running done text dim border; do
   v="$(tmux show -gv "@agent_c_$o" 2>/dev/null)" || continue
   case "$v" in
-    ''|*[!0-9]*) fzfcolour x "$v" ||
+    '') ;;   # the panel's default
+    *[!0-9]*)    fzfcolour x "$v" ||
                    warn "@agent_c_$o is $v, which the panel can't show, so it uses its default; use colourN, #rrggbb or one of the 16 names" ;;
     # A reload after upgrading keeps the old default, which was bare.
     *)           fail "@agent_c_$o is $v; write colour$v (tmux styles take no bare index), or if you never set it, restart tmux" ;;
