@@ -40,7 +40,7 @@ jobs:
       - name: shellcheck
         run: shellcheck -S warning $(git grep -lE '^#!/usr/bin/env bash' -- ':!*.md')
       - name: JSON
-        run: jq empty hooks/copilot.json
+        run: jq empty harnesses/copilot/hooks.json
 
   # release.yml picks the version bump from these prefixes.
   pr-title:

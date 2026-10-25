@@ -23,8 +23,6 @@ warn() { printf '%swarn%s %s\n' "$Y" "$R" "$*"; }
 fail() { printf '%sfail%s %s\n' "$RD" "$R" "$*"; bad=1; }
 
 dest="$AGENTS_HOME"
-copilot="$HOME/.copilot/hooks/agent-state.json"
-pi="$HOME/.pi/agent/extensions/agent-state.ts"
 
 # Dependencies.
 if v="$(tmux -V 2>/dev/null)"; then
@@ -46,35 +44,19 @@ else fail "nothing at $dest; run install.sh"; fi
 
 # Each installed agent's hooks, found the way install.sh finds the agent.
 found=0
-if has_agent claude; then
-  found=1 f="$HOME/.claude/settings.json"
-  if ! have="$(jq -r '.hooks // {} | to_entries[]
-        | select(any(.value[]?.hooks[]?; (.command // "") | test("agent-state"))) | .key' "$f" 2>/dev/null)"; then
-    fail "claude: can't read $f; run install.sh"
-  else
-    missing=''
-    for e in $(cut -d" " -f1 <<<"$CLAUDE_EVENTS"); do
-      grep -qx "$e" <<<"$have" || missing+=" $e"
-    done
-    if [ -z "$have" ]; then fail "claude: no hooks in $f; run install.sh"
-    elif [ -n "$missing" ]; then fail "claude: no hook for$missing in $f; run install.sh"
-    elif [ "$(jq '.disableAllHooks // false' "$f")" = true ]; then fail "claude: disableAllHooks is on in $f"
-    else ok "claude: hooks in $f"; fi
-    # The command is `"<path>" <state>`: the path has to be there.
-    while read -r p; do
-      [ -x "$p" ] || fail "claude: the hooks call $p, which isn't there; run install.sh"
-    done < <(jq -r '.hooks // {} | .[][].hooks[]?.command // empty | select(test("agent-state"))' "$f" |
-               sed -n 's/^"\([^"]*\)".*/\1/p' | sort -u)
-  fi
-fi
-# link_check <agent> <link>
-link_check() {
-  if [ -e "$2" ]; then ok "$1: $2"
-  elif [ -L "$2" ]; then fail "$1: $2 is a broken link; run install.sh"
-  else fail "$1: no $2; run install.sh"; fi
-}
-if has_agent copilot; then found=1; link_check copilot "$copilot"; fi
-if has_agent pi; then found=1; link_check pi "$pi"; fi
+for h in $(harnesses); do
+  has_agent "$h" || continue
+  found=1; adapter "$h"
+  if [ -x "$HARNESSES/$h/install" ]; then
+    while read -r how what; do
+      if [ "$how" = ok ]; then ok "$h: $what"; else fail "$h: $what"; fi
+    done < <("$HARNESSES/$h/install" --check)
+  elif [ -z "$HOOK_LINK" ]; then :
+  elif [ -e "$HOOK_LINK" ]; then ok "$h: $HOOK_LINK"
+  # A link from before 0.15.0 points at hooks/, which is gone.
+  elif [ -L "$HOOK_LINK" ]; then fail "$h: $HOOK_LINK is a broken link; run install.sh"
+  else fail "$h: no $HOOK_LINK; run install.sh"; fi
+done
 [ "$found" = 1 ] || warn "no Claude Code, Copilot CLI or Pi found; other agents report through agent-state"
 
 # The tmux server.
@@ -110,12 +92,12 @@ n="$(tmux list-panes -a -f '#{@agent_state}' -F . 2>/dev/null | wc -l | tr -d ' 
 ok "$n agent(s) reporting"
 tmux list-panes -a -f '#{==:#{@agent_state},}' -F '#{pane_id} #{pane_pid}' 2>/dev/null |
   while read -r id root; do
-    ps -A -o pid=,ppid=,args= | awk -v root="$root" '
+    ps -A -o pid=,ppid=,args= | awk -v root="$root" -v names="^($(harnesses | paste -sd'|' -))\$" '
       { kid[$2] = kid[$2] " " $1; a = $3; if (a ~ /(^|\/)node$/) a = $4
         sub(/.*\//, "", a); cmd[$1] = a }
       END { q[0] = root; n = 1
         for (i = 0; i < n; i++) {
-          if (cmd[q[i]] ~ /^(claude|copilot|pi)$/) { print cmd[q[i]]; exit }
+          if (cmd[q[i]] ~ names) { print cmd[q[i]]; exit }
           m = split(kid[q[i]], k, " "); for (j = 1; j <= m; j++) q[n++] = k[j] } }' |
       while read -r who; do
         warn "$id ($(tmux display -p -t "$id" '#{session_name}:#{window_index}.#{pane_index}')) runs $who but reports nothing; restart it to load the hooks"

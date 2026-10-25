@@ -18,8 +18,6 @@ die() { printf '\033[1;31mfail\033[0m %s\n' "$*" >&2; exit 1; }
 
 repo="https://github.com/willdah/tmux-agent-corral.git"
 dest="$HOME/.config/tmux/agents"
-copilot="$HOME/.copilot/hooks/agent-state.json"
-pi="$HOME/.pi/agent/extensions/agent-state.ts"
 begin="# >>> tmux-agent-corral >>>"
 end="# <<< tmux-agent-corral <<<"
 block="$begin
@@ -69,7 +67,7 @@ bootstrap() {
 
 # Everything runs from here, so a download cut short runs nothing.
 main() {
-  local remove=0 edit_conf=1 arg here conf c v tmp
+  local remove=0 edit_conf=1 arg here conf c v tmp h
   for arg; do
     case $arg in
       --remove) remove=1 ;;
@@ -88,9 +86,11 @@ main() {
   [ -f "$conf" ] || [ ! -f "$HOME/.config/tmux/tmux.conf" ] || conf="$HOME/.config/tmux/tmux.conf"
 
   if [ $remove = 1 ]; then
-    [ -f "$HOME/.claude/settings.json" ] && "$here/hooks/claude-install" --remove
-    unlink_ours "$copilot"
-    unlink_ours "$pi"
+    for h in $(harnesses); do
+      adapter "$h"
+      if [ -x "$HARNESSES/$h/install" ]; then "$HARNESSES/$h/install" --remove
+      elif [ -n "$HOOK_LINK" ]; then unlink_ours "$HOOK_LINK"; fi
+    done
     unlink_ours "$dest"
     if [ $edit_conf = 1 ] && grep -qsF "$begin" "$conf"; then
       # Rewritten in place, not replaced, so a symlinked tmux.conf stays a link.
@@ -113,10 +113,14 @@ main() {
   # (~/.config/tmux kept in a dotfiles repo).
   [ "$dest" -ef "$here" ] || link "$here" "$dest"
 
-  # Agent configs are touched only for agents that are installed.
-  if has_agent claude; then "$here/hooks/claude-install"; fi
-  if has_agent copilot; then link "$dest/hooks/copilot.json" "$copilot"; fi
-  if has_agent pi; then link "$dest/hooks/pi.ts" "$pi"; fi
+  # Agent configs are touched only for agents that are installed. A link goes
+  # through $dest, the path that stays put when the clone moves.
+  for h in $(harnesses); do
+    has_agent "$h" || continue
+    adapter "$h"
+    if [ -x "$HARNESSES/$h/install" ]; then "$HARNESSES/$h/install"
+    elif [ -n "$HOOK_LINK" ]; then link "$dest/harnesses/$h/$HOOK" "$HOOK_LINK"; fi
+  done
 
   if grep -qs 'agents/agents.tmux' "$conf"; then
     ok "$conf already sources agents.tmux"

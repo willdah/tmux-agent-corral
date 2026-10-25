@@ -159,7 +159,7 @@ The protocol is one script. `agent-state <input|running|done|idle|clear> [harnes
 ~/.config/tmux/agents/src/agent-state running codex
 ```
 
-`hooks/copilot.json`, `hooks/pi.ts` and `hooks/claude-install` show how the built-in ones do it.
+The built-in ones live in `harnesses/<name>/`: an `adapter.sh` that says how to pass a first prompt and which key interrupts it, next to the hook it installs (`copilot/hooks.json`, `pi/extension.ts`, and `claude/install`, which merges Claude's into `settings.json`). A new folder there is a new built-in harness.
 
 ### Scripting
 

@@ -387,7 +387,7 @@ t capture-pane -p -t "$ec" | grep -qF '^[' || fail "x sent no Escape"
 "$here/src/agents" --interrupt "$ec"; sleep 0.3
 [ "$(t capture-pane -p -t "$ec" | grep -o '\^\[' | wc -l | tr -d ' ')" = 1 ] || fail "x sent a second Escape to an idle agent"
 for q in $cp $ec; do t kill-pane -t "$q"; done
-grep -q sessionStart "$here/hooks/copilot.json" && fail "copilot sessionStart hook is back: it fires after the first prompt"
+grep -q sessionStart "$here/harnesses/copilot/hooks.json" && fail "copilot sessionStart hook is back: it fires after the first prompt"
 
 # wait: returns once the pane is in a wanted state (input or done when none
 # is named), 1 on the timeout or a pane that is gone.
@@ -534,9 +534,9 @@ inst; inst
 [ -L "$h/.config/tmux/agents" ] || fail "install.sh did not link the clone"
 [ "$(ours)" = 6 ] || fail "claude hooks: want 6 of ours after two installs, got $(ours)"
 jq -e '.hooks.Stop[] | select(.hooks[0].command == "echo mine")' "$h/.claude/settings.json" >/dev/null || fail "install dropped the user's claude hook"
-[ -L "$h/.copilot/hooks/agent-state.json" ] || fail "install.sh did not link the copilot hooks"
-[ -L "$h/.pi/agent/extensions/agent-state.ts" ] || fail "install.sh did not link the pi extension"
-jq empty "$here/hooks/copilot.json" || fail "hooks/copilot.json is not valid JSON"
+[ "$(readlink "$h/.copilot/hooks/agent-state.json")" = "$h/.config/tmux/agents/harnesses/copilot/hooks.json" ] || fail "install.sh did not link the copilot hooks"
+[ "$(readlink "$h/.pi/agent/extensions/agent-state.ts")" = "$h/.config/tmux/agents/harnesses/pi/extension.ts" ] || fail "install.sh did not link the pi extension"
+jq empty "$here/harnesses/copilot/hooks.json" || fail "harnesses/copilot/hooks.json is not valid JSON"
 # doctor, on that install and this server: all good; then each break is named.
 doc() { out="$(NO_COLOR=1 HOME="$h" "$here/src/doctor" 2>&1)"; }
 doc || fail "doctor failed on a good install: $out"

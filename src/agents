@@ -270,9 +270,8 @@ interrupt() {
   # fires a hook, so mark the agent idle here: it would read working until
   # the next prompt, and for Copilot a second x would send the C-c that quits it.
   local agent; agent="$(tmux display -p -t "$1" '#{@agent}' 2>/dev/null)"
-  if [ "$agent" = copilot ]; then tmux send-keys -t "$1" C-c
-  else tmux send-keys -t "$1" Escape
-  fi
+  adapter "$agent" || true
+  tmux send-keys -t "$1" "$INTERRUPT"
   TMUX_PANE="$1" "${self%/*}/agent-state" idle "$agent" </dev/null
 }
 

@@ -47,7 +47,7 @@ sq() { local q="'\\''"; printf "'%s'" "${1//\'/$q}"; }
 # installed: the built-in harnesses on PATH, one per line.
 installed() {
   local h
-  for h in claude copilot pi; do command -v "$h" >/dev/null 2>&1 && printf '%s\n' "$h"; done
+  for h in $(harnesses); do command -v "$h" >/dev/null 2>&1 && printf '%s\n' "$h"; done
   return 0
 }
 
@@ -86,9 +86,7 @@ spawn() {
   local dir="$1" agent="$2" text="${3:-}" sess="${4:-}" base name n=1 cmd pane
   base="${dir##*/}"; base="${base//[.:]/_}"; name="${base:-root}"
   cmd="$agent"
-  if [ -n "$text" ]; then
-    case "${agent##*/}" in copilot) cmd+=" -i $(sq "$text")" ;; *) cmd+=" -- $(sq "$text")" ;; esac
-  fi
+  if [ -n "$text" ]; then adapter "${agent##*/}" || true; cmd+=" $PROMPT $(sq "$text")"; fi
   if [ -n "$sess" ] && tmux has-session -t "=$sess" 2>/dev/null; then
     pane="$(tmux new-window -d -t "=$sess:" -n "$name" -c "$dir" -P -F '#{pane_id}')" || return 1
   else
