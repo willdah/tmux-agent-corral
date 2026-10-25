@@ -221,8 +221,11 @@ ask() {
   agents="$(profiles)"
   [ -n "$agents" ] || die "no agent to start: no @agents_launch_* command is on PATH"
   if [ "$(wc -l <<<"$agents")" -gt 1 ]; then
-    rc=0; out="$(awk -F'\t' -v dim="$DIM" -v r="$R" '{ printf "%s\t%-12s %s%-8s %s%s\n", $1, $1, dim, ($2 == "" ? "·" : $2), $3, r }' <<<"$agents" |
-                 step 'agent › ' "${DIM}in $TEXT$shown$R")" || rc=$?
+    # The column headings lead, pinned by --header-lines like the panel's.
+    rc=0; out="$(awk -F'\t' -v dim="$DIM" -v r="$R" '
+                   NR == 1 { printf "-\t%s%-12s %-8s %s%s\n", dim, "PROFILE", "HARNESS", "COMMAND", r }
+                   { printf "%s\t%-12s %s%s %s%s\n", $1, $1, dim, ($2 == "" ? "·       " : sprintf("%-8s", $2)), $3, r }' <<<"$agents" |
+                 step 'agent › ' "${DIM}in $TEXT$shown$R" --header-lines=1)" || rc=$?
     [ "$rc" = 0 ] || cancel
     agent="$(sed -n 2p <<<"$out" | cut -f1)"
   else agent="$(cut -f1 <<<"$agents")"; fi
