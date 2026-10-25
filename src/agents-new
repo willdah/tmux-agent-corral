@@ -15,8 +15,8 @@
 #            (else HEAD); an existing branch gets a worktree of its own
 #   session  the tmux session to add the window to: the one you're in, any
 #            other, or + new session
-#   agent    whichever of claude, copilot and pi are installed; skipped when
-#            only one is
+#   agent    a launch profile (@agents_launch_<name>, see --profiles) whose
+#            command is on PATH; skipped when only one is
 #   prompt   a first prompt for the agent, or nothing
 #
 # then switches to the new window; with stay (the docked panel) the panel
@@ -26,14 +26,17 @@
 # agents, and prints the new pane's id. --branch works as above. --session
 # names the session to add the window to, made when there is none, or new for
 # a session of its own; without it the window joins the caller's session
-# (outside tmux, a new one). Without --agent it takes the first one installed.
-# AGENT can be any command: it is typed into the window's shell, with the
-# prompt as its last argument (copilot's with -i).
+# (outside tmux, a new one). AGENT names a profile, else is a command of its
+# own; without --agent it takes the default profile. The command is typed into
+# the window's shell, with the prompt as its last argument, after the flag its
+# harness's adapter names (copilot's -i, else --).
 #
 # The window is named after the directory; a new session is too, with -2,
 # -3... when that is taken.
 #
-#   agents-new --dirs   the folders the where step offers, one per line
+#   agents-new --dirs       the folders the where step offers, one per line
+#   agents-new --profiles   the agent step's profiles, in its order: name,
+#                           harness (empty for none), command, tab-separated
 set -euo pipefail
 
 here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,11 +47,22 @@ here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # sq TEXT: TEXT quoted for any shell the session might run.
 sq() { local q="'\\''"; printf "'%s'" "${1//\'/$q}"; }
 
-# installed: the built-in harnesses on PATH, one per line.
-installed() {
-  local h
-  for h in claude copilot pi; do command -v "$h" >/dev/null 2>&1 && printf '%s\n' "$h"; done
-  return 0
+# profiles: the launch profiles (@agents_launch_<name>) that can run, in the
+# picker's order, tab-separated: name, harness (empty for none), command. The
+# default (@agents_launch_default, else claude) leads, then the rest of its
+# harness's, then the other harnesses' by name, then those of none.
+profiles() {
+  local n c def
+  def="$(tmux show -gv @agents_launch_default 2>/dev/null || true)"
+  launch_names | while read -r n; do
+    c="$(tmux show -gv "@agents_launch_$n" 2>/dev/null)"
+    if [ -n "$c" ] && runnable "$c"; then printf '%s\t%s\t%s\n' "$n" "$(harness_of "$c")" "$c"; fi
+  done | awk -F'\t' -v def="$def" '
+    { n[NR] = $1; h[NR] = $2; l[NR] = $0; if ($1 == def) d = NR; if ($1 == "claude") c = NR }
+    END { if (!d) d = c
+          for (i = 1; i <= NR; i++)
+            print (i == d ? 0 : h[i] == "" ? 3 : h[i] == h[d] ? 1 : 2) "\t" h[i] "\t" n[i] "\t" l[i] }' |
+    sort -t$'\t' -k1,1n -k2,2 -k3,3 | cut -f4-
 }
 
 # mainof DIR: the main checkout of the repo DIR is in; fails outside one (or
@@ -86,9 +100,7 @@ spawn() {
   local dir="$1" agent="$2" text="${3:-}" sess="${4:-}" base name n=1 cmd pane
   base="${dir##*/}"; base="${base//[.:]/_}"; name="${base:-root}"
   cmd="$agent"
-  if [ -n "$text" ]; then
-    case "${agent##*/}" in copilot) cmd+=" -i $(sq "$text")" ;; *) cmd+=" -- $(sq "$text")" ;; esac
-  fi
+  if [ -n "$text" ]; then adapter "$(harness_of "$agent")" || true; cmd+=" $PROMPT $(sq "$text")"; fi
   if [ -n "$sess" ] && tmux has-session -t "=$sess" 2>/dev/null; then
     pane="$(tmux new-window -d -t "=$sess:" -n "$name" -c "$dir" -P -F '#{pane_id}')" || return 1
   else
@@ -150,19 +162,15 @@ sessions() {
 }
 
 # The panel's palette, so a step looks like the panel it came from.
-read -r BLUE TEXT DIM <<<"$(tmux display -p '#{@agent_c_running} #{@agent_c_text} #{@agent_c_dim}' 2>/dev/null || true)"
-bc="${BLUE:-110}" tc="${TEXT:-250}" dc="${DIM:-247}" fc=238
+palette
 B=$'\033[1m' UB=$'\033[22m'
-if [ -n "${NO_COLOR:-}" ]; then TEXT='' DIM='' AMBER='' R=''
-else printf -v TEXT '\033[38;5;%sm' "$tc"; printf -v DIM '\033[38;5;%sm' "$dc"
-     printf -v AMBER '\033[38;5;%sm' "$(tmux display -p '#{@agent_c_input}' 2>/dev/null || echo 214)"; R=$'\033[0m'
-fi
 
 # step PROMPT NOTE [fzf args]: one question, its choices on stdin; prints the
 # query, then the chosen line. NOTE shows above the choices: what went wrong
 # last time, else how to answer.
 step() {
   local prompt="$1" note="$2"; shift 2
+  # shellcheck disable=SC2154   # palette sets the colours
   fzf --ansi --layout=reverse --cycle --print-query --delimiter=$'\t' --with-nth=2.. \
     --border=rounded --border-label=' new agent ' --border-label-pos=3 \
     --info=hidden --pointer='▌' --gutter=' ' --prompt="$prompt" --header="$note" \
@@ -175,7 +183,7 @@ step() {
 # ask [stay]: the panel's c. Each answer is read off step's output: its first
 # line the query, its second the chosen row's first field.
 ask() {
-  local stay="${1:-}" out rc q sel dir m agent text note agents pane shown sess
+  local stay="${1:-}" out rc q sel dir m agent cmd text note agents pane shown sess
   cancel() { [ "$stay" = stay ] || exec "$here/agents"; exit 0; }
   note="${DIM}a folder below, or type a path (/, ~ or .)$R"
   while :; do
@@ -210,25 +218,31 @@ ask() {
   rc=0; out="$(sessions | step 'session › ' "${DIM}the session to add $TEXT$shown$DIM to$R")" || rc=$?
   [ "$rc" = 0 ] || cancel
   sess="$(sed -n 2p <<<"$out" | cut -f1)"; [ "$sess" != + ] || sess=''
-  agents="$(installed)"
-  [ -n "$agents" ] || die "no claude, copilot or pi on PATH"
+  agents="$(profiles)"
+  [ -n "$agents" ] || die "no agent to start: no @agents_launch_* command is on PATH"
   if [ "$(wc -l <<<"$agents")" -gt 1 ]; then
-    rc=0; out="$(printf '%s\n' "$agents" | awk '{ print $0 "\t" $0 }' | step 'agent › ' "${DIM}in $TEXT$shown$R")" || rc=$?
+    # The column headings lead, pinned by --header-lines like the panel's.
+    rc=0; out="$(awk -F'\t' -v dim="$DIM" -v r="$R" '
+                   NR == 1 { printf "-\t%s%-12s %-8s %s%s\n", dim, "PROFILE", "HARNESS", "COMMAND", r }
+                   { printf "%s\t%-12s %s%s %s%s\n", $1, $1, dim, ($2 == "" ? "·       " : sprintf("%-8s", $2)), $3, r }' <<<"$agents" |
+                 step 'agent › ' "${DIM}in $TEXT$shown$R" --header-lines=1)" || rc=$?
     [ "$rc" = 0 ] || cancel
     agent="$(sed -n 2p <<<"$out" | cut -f1)"
-  else agent="$agents"; fi
+  else agent="$(cut -f1 <<<"$agents")"; fi
+  cmd="$(awk -F'\t' -v n="$agent" '$1 == n { print $3; exit }' <<<"$agents")"
 
   rc=0; out="$(step "$agent › " "${DIM}a first prompt, or ↵ to start without one$R" </dev/null)" || rc=$?
   [ "$rc" -le 1 ] || cancel
   text="$(sed -n 1p <<<"$out")"
 
-  pane="$(spawn "$dir" "$agent" "$text" "$sess")" || die "could not start an agent in $dir"
+  pane="$(spawn "$dir" "$cmd" "$text" "$sess")" || die "could not start an agent in $dir"
   "$here/agents" --jump "$pane" "$stay"
 }
 
 case "${1:-}" in
   ''|stay) ask "${1:-}" ;;
   --dirs) dirs | cut -f1 ;;
+  --profiles) profiles ;;
   --*)
     dir='' branch='' agent='' text='' sess=''
     # The caller's session, unless told otherwise.
@@ -250,9 +264,17 @@ case "${1:-}" in
       m="$(mainof "$dir")" || die "$dir is not in a git repo, so it has no branches"
       dir="$(worktree_for "$m" "$branch")" || die "$dir"
     fi
-    [ -n "$agent" ] || agent="$(installed | head -1)"
-    [ -n "$agent" ] || die "no claude, copilot or pi on PATH; name one with --agent"
-    command -v "$agent" >/dev/null 2>&1 || die "$agent not found"
+    # A profile's name, else a command of its own.
+    if [ -z "$agent" ]; then
+      agent="$(profiles | head -1 | cut -f3)"
+      [ -n "$agent" ] || die "no agent to start: no @agents_launch_* command is on PATH; name one with --agent"
+    else
+      if c="$(tmux show -gv "@agents_launch_$agent" 2>/dev/null)"; then
+        [ -n "$c" ] || die "$agent is hidden: @agents_launch_$agent is empty"
+        agent="$c"
+      fi
+    fi
+    runnable "$agent" || die "${agent%% *} not found"
     spawn "$dir" "$agent" "$text" "$sess"
     ;;
   *) die "usage: $(basename "$0") [stay] | --dir DIR [--branch BRANCH] [--session SESSION] [--agent AGENT] [--prompt TEXT]" ;;

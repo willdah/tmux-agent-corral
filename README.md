@@ -80,7 +80,7 @@ The `-a` appends to whatever you have. If the marks land in the wrong place, put
 ~/.config/tmux/agents/src/doctor
 ```
 
-It checks the dependencies, each agent's hooks, that tmux has `agents.tmux` loaded and the marks in its status line and tabs, and the notifier, and names any agent running in tmux that reports nothing. It only reads, and says what to fix.
+It checks the dependencies, each agent's hooks, that tmux has `agents.tmux` loaded and the marks in its status line and tabs, the notifier, and your settings (keys that didn't bind or clash, colours it can't use, launch profiles not on PATH), and names any agent running in tmux that reports nothing. It only reads, and says what to fix.
 
 ### Uninstall
 
@@ -96,6 +96,8 @@ It takes out the hooks, the links and the tmux.conf block.
 |-----|--------|
 | `prefix + a` | agents panel as a popup; `↵` jumps to the agent and closes |
 | `prefix + A` | toggle the docked panel: a full-height pane on the left that follows you to every window and session and keeps focus; `↵` shows the agent, the cursor stays in the panel |
+
+`@agents_key` and `@agents_key_dock` change these two; see the [FAQ](#faq).
 
 Inside the panel:
 
@@ -114,6 +116,8 @@ Inside the panel:
 | `j` / `k` | move down / up |
 | `q` / `Esc` | close |
 
+To move one of the letter keys, name its action: `set -g @agents_panel_key_interrupt X` (the actions are `approve`, `message`, `rename`, `interrupt`, `kill`, `new`, `group`, `preview`, `close`, `reload`, `down` and `up`). The footer follows. An empty value unbinds one. `↵`, `Esc` and the arrows stay as they are.
+
 The panel refreshes the moment an agent changes state, and every 10 seconds to keep the ages current. Visiting a finished agent's pane turns its `✓` into a quiet idle `○`. A `▲` stays until the agent gets its answer.
 
 The docked panel moves into whichever window you switch to. Each window's layout is saved when the panel arrives and restored when it leaves, so your layouts never drift. It stays put in a zoomed window, or one narrower than 128 columns, and catches up on the next switch.
@@ -125,21 +129,22 @@ The docked panel moves into whichever window you switch to. Each window's layout
 1. **Where:** the folders your running agents work in (a repo by its main checkout), the subfolders of each folder in `@agents_roots`, or a path you type, starting with `/`, `~` or `.`. It doesn't have to be a repo.
 2. **Worktree**, in a git repo only: the checkout itself (marked `(the checkout)`), one of its worktrees, or `+ new worktree`, which asks for a branch name. The new worktree goes at `<repo>-worktrees/<branch>` (with `/` as `-`), on a new branch made from origin's default branch (or `HEAD` without one), or on that branch if it exists. A worktree has only tracked files, so install dependencies there before building.
 3. **Session:** the tmux session to add the agent's window to: the one you're in (first), any other, or `+ new session`.
-4. **Agent:** whichever of claude, copilot and pi are installed; skipped when there's only one.
+4. **Agent:** a launch profile (see [Launch profiles](#launch-profiles)) whose command is on PATH, by name, harness and command, the default first; skipped when there's only one.
 5. **Prompt:** a first prompt to start it on, or ↵ to start it without one.
 
 The agent starts in a new window named after its folder (a new session is named after it too), and you land on it (the docked panel follows). `esc` at any step goes back to the panel.
 
 ## Configure
 
-Set any of these after the `source-file` line. Values are 256-colour indexes.
+Set any of these in your tmux.conf, before or after the `source-file` line: `agents.tmux` only fills in what you haven't set. A colour is `colourN` (0 to 255), `#rrggbb`, or one of the 16 names (`red`, `brightred`, …). A bare index from before 0.15.0 (`214`) gets its `colour` prefix when it's set before the `source-file` line; after it, write `colour214`.
 
 | Option | Default | Colours |
 |---|---|---|
-| `@agent_c_input` | `214` | `▲` needs you |
-| `@agent_c_running` | `110` | `●` working |
-| `@agent_c_done` | `108` | `✓` finished |
-| `@agent_c_text`, `@agent_c_dim` | `250`, `247` | panel text; use about `236`/`240` on a light theme |
+| `@agent_c_input` | `colour214` | `▲` needs you |
+| `@agent_c_running` | `colour110` | `●` working |
+| `@agent_c_done` | `colour108` | `✓` finished |
+| `@agent_c_text`, `@agent_c_dim` | `colour250`, `colour247` | panel text; use about `colour236`/`colour240` on a light theme |
+| `@agent_c_border` | `colour238` | the panel's borders and group rules |
 
 `set -g @agents_roots "~/Projects ~/work"` lists those folders' subfolders as places to start an agent with `c`.
 
@@ -148,6 +153,19 @@ Set any of these after the `source-file` line. Values are 256-colour indexes.
 `@agents_notify` says how you hear that an agent needs you or finished while no client is looking at its pane: `tmux` (default: a message in every client looking elsewhere), `os` (a desktop notification, through `osascript` or `notify-send`), `off`, or a command of your own, run with the message (`▲ Fix login needs you`) as its one argument.
 
 `NO_COLOR=1` turns the panel's colours off.
+
+### Launch profiles
+
+What `c` offers to start is a list of profiles, one option each: `@agents_launch_<name>` holds a command, typed into the new window's shell as you'd type it. `claude`, `copilot` and `pi` are there by default; add your own, wrappers included:
+
+```tmux
+set -g @agents_launch_yolo    "claude --dangerously-skip-permissions"
+set -g @agents_launch_hr      "headroom wrap claude"
+set -g @agents_launch_default hr   # listed first, and what agents-new takes without --agent
+set -g @agents_launch_pi      ""   # empty hides one
+```
+
+A profile's harness is the first word of its command, before any flag, that names one (`headroom wrap claude` is Claude; so is `claude --model opus`, whose flags and arguments never count), which decides how its first prompt is passed (`-i` for Copilot, else `--`). A command of no known harness still starts, with `-- PROMPT` after it. The list shows only profiles whose first word is on PATH, the default first, then the rest of its harness's, then the other harnesses', then those of none. Without `@agents_launch_default`, `claude` leads.
 
 The hooks are registered at index `[40]` (`session-window-changed`, `client-session-changed`, `pane-focus-in`), so they sit alongside your own. `agents.tmux` also turns on `focus-events`.
 
@@ -159,7 +177,7 @@ The protocol is one script. `agent-state <input|running|done|idle|clear> [harnes
 ~/.config/tmux/agents/src/agent-state running codex
 ```
 
-`hooks/copilot.json`, `hooks/pi.ts` and `hooks/claude-install` show how the built-in ones do it.
+The built-in ones live in `harnesses/<name>/`: an `adapter.sh` that says how to pass a first prompt and which key interrupts it, next to the hook it installs (`copilot/hooks.json`, `pi/extension.ts`, and `claude/install`, which merges Claude's into `settings.json`). A new folder there is a new built-in harness.
 
 ### Scripting
 
@@ -183,7 +201,7 @@ agents-new --dir DIR [--branch BRANCH] [--session SESSION] [--agent AGENT] [--pr
 p=$(agents-new --dir ~/src/app --branch fix/flaky --agent claude --prompt "find and fix the flaky test") && agent-state wait "$p"
 ```
 
-`--branch` makes or reuses a worktree as `c` does. `--session` adds the window to that session, making it if there is none, or `--session new` gives it a session of its own; without it the window joins the caller's session (outside tmux, a new one). Without `--agent` it takes the first of claude, copilot and pi that is installed. `AGENT` can be any command: it's typed into the session's shell with the prompt as its last argument (Copilot's with `-i`).
+`--branch` makes or reuses a worktree as `c` does. `--session` adds the window to that session, making it if there is none, or `--session new` gives it a session of its own; without it the window joins the caller's session (outside tmux, a new one). `AGENT` names a launch profile, else is a command of its own (`--agent "claude --model opus"`); without it, the default profile. It's typed into the session's shell with the prompt as its last argument (Copilot's with `-i`). `agents-new --profiles` lists the profiles `c` offers, in its order: name, harness, command, tab-separated.
 
 To find a pane, `agents --rows` prints one tab-separated record per agent in the panel's order: rank (0 needs you, 1 finished, 2 idle, 3 working), since (epoch), pane id, state, harness, project, name, session. With grouping on, a heading record leads each session: rank `H`, its counts by rank in the state field, `-<session>` as the id. Two housekeeping verbs round out the record: `agent-state seen PANE` dims a finished agent to idle (the focus hook and the panel's jump call it), and `agent-state sweep` clears every pane whose agent died without saying so (the panel runs it on open and every 10s).
 
@@ -252,13 +270,12 @@ It sends one Enter, so you get whatever option the agent's prompt has highlighte
 <details>
 <summary><b>I already use <code>prefix + a</code> / <code>prefix + A</code>.</b></summary>
 
-Rebind them after the `source-file` line:
+Pick others **before** the `source-file` line (the keys are bound as it's read); an empty one binds nothing:
 
 ```tmux
-unbind a
-unbind A
-bind g display-popup -B -E -w 90% -h 85% "~/.config/tmux/agents/src/agents"
-bind G run-shell "~/.config/tmux/agents/src/agents-dock toggle '#{window_id}'"
+set -g @agents_key      g
+set -g @agents_key_dock G
+source-file ~/.config/tmux/agents/agents.tmux
 ```
 
 </details>

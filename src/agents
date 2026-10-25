@@ -21,6 +21,8 @@
 #                     its counts by rank in the state field, -<session> as id.
 #
 # Keys: ↵ jump · y approve · m message · n rename · x interrupt · d kill · c new · g group · r refresh · q close
+# (@agents_panel_key_<action> moves one; agents --keys lists them as set:
+# action, key, popup hint, dock hint).
 #
 # With @agents_group on (g toggles it), the rows sit under a heading per tmux
 # session, each in the usual order. The session holding the most urgent row
@@ -38,20 +40,11 @@ self="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE
 # shellcheck source=src/common.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-# Palette: the state colours come from ~/.tmux.conf (@agent_c_*), so the panel
-# and the status line can't drift apart. Both greys clear 4.5:1 on a dark
-# terminal, the selected row included; a light theme sets @agent_c_text/dim.
-read -r AMBER BLUE GREEN TEXT DIM <<<"$(tmux display -p '#{@agent_c_input} #{@agent_c_running} #{@agent_c_done} #{@agent_c_text} #{@agent_c_dim}' 2>/dev/null || true)"
-AMBER="${AMBER:-214}" BLUE="${BLUE:-110}" GREEN="${GREEN:-108}" TEXT="${TEXT:-250}" DIM="${DIM:-247}"
-FAINT=238   # the group rule: structure, not text, so the border's grey
-bc=$BLUE tc=$TEXT dc=$DIM fc=$FAINT   # the indexes themselves, for fzf's --color
+# Palette (see common.sh): both greys clear 4.5:1 on a dark terminal, the
+# selected row included; a light theme sets @agent_c_text/dim. FAINT, the
+# group rule, is structure, not text, so the border's grey.
+palette
 B=$'\033[1m' UB=$'\033[22m'   # bold carries the footer's keys; NO_COLOR keeps it
-if [ -n "${NO_COLOR:-}" ]; then
-  AMBER='' BLUE='' GREEN='' TEXT='' DIM='' FAINT='' R=''
-else
-  for v in AMBER BLUE GREEN TEXT DIM FAINT; do printf -v "$v" '\033[38;5;%sm' "${!v}"; done
-  R=$'\033[0m'
-fi
 
 # The helpers below write into the variable named by their first argument
 # (printf -v) instead of printing: --list runs on every refresh, and a $( )
@@ -270,9 +263,8 @@ interrupt() {
   # fires a hook, so mark the agent idle here: it would read working until
   # the next prompt, and for Copilot a second x would send the C-c that quits it.
   local agent; agent="$(tmux display -p -t "$1" '#{@agent}' 2>/dev/null)"
-  if [ "$agent" = copilot ]; then tmux send-keys -t "$1" C-c
-  else tmux send-keys -t "$1" Escape
-  fi
+  adapter "$agent" || true
+  tmux send-keys -t "$1" "$INTERRUPT"
   TMUX_PANE="$1" "${self%/*}/agent-state" idle "$agent" </dev/null
 }
 
@@ -393,26 +385,71 @@ ping() {
   [ -n "$port" ] && curl -fs -XPOST "localhost:$port" -d "transform-border-label($self --label)" >/dev/null 2>&1 || true
 }
 
+# keymap: the panel's action keys, in footer order: action, key, the popup's
+# hint, the dock's (- for none). @agents_panel_key_<action> moves one; an
+# empty one is left out, unbound. fzf splits its lists on , and its binds on
+# :, so a key with either keeps its default (the doctor says so).
+keymap() {
+  local k v
+  while read -r -a k; do
+    if v="$(tmux show -gv "@agents_panel_key_${k[0]}" 2>/dev/null)"; then
+      case "$v" in *[,:]*) ;; *) k[1]="$v" ;; esac
+    fi
+    [ -z "${k[1]}" ] || printf '%s %s %s %s\n' "${k[@]}"
+  done <<'KEYS'
+approve   y approve   approve
+message   m message   msg
+rename    n rename    name
+interrupt x interrupt stop
+kill      d kill      kill
+new       c new       -
+group     g group     -
+preview   p preview   peek
+close     q close     close
+reload    r -         -
+down      j -         -
+up        k -         -
+KEYS
+}
+
 panel() {
   command -v fzf >/dev/null 2>&1 || die "fzf not found (brew install fzf)"
-  local watch="${1:-}" enter new preview keys start=''
-  # The docked panel is narrow, so its key hints are shorter.
+  local watch="${1:-}" enter new preview hint_col=2 start=''   # keymap's column of hints
+  # The docked panel is narrow, so its key hints are shorter, and fewer.
   if [ "$watch" = watch ]; then
     start="execute-silent(tmux set -p -t \$TMUX_PANE @agents_port \$FZF_PORT)+transform-border-label($self --label)+"
     enter="execute-silent($self --jump {1} stay)"
     new="execute(${self%/*}/agents-new stay)+reload-sync($self --list0)"
     preview='down,60%,follow,border-top,hidden'
-    keys='↵ jump|y approve|m msg|n name|x stop|d kill|p peek|q close'
+    hint_col=3
   else
     enter="become($self --jump {1})"
     new="become(${self%/*}/agents-new)"
     preview='down,65%,follow,border-top'
-    keys='↵ jump|y approve|m message|n rename|x interrupt|d kill|c new|g group|p preview|q close'
   fi
-  local footer='' k
-  while IFS= read -r -d '|' k; do
-    footer+="$B$TEXT${k%% *}$UB$DIM ${k#* }  "
-  done <<<"$keys|"
+  local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
+
+  # The binds, footer and the lock below all come from keymap.
+  local a k hint footer="$B${TEXT}↵$UB$DIM jump  " lock='' binds=()
+  while read -r -a k; do
+    a="${k[0]}"
+    case "$a" in
+      approve)   binds+=(--bind="${k[1]}:execute-silent($self --approve {1})+reload-sync($self --list0)") ;;
+      message)   binds+=(--bind="${k[1]}:transform($self --key m {1})") ;;
+      rename)    binds+=(--bind="${k[1]}:transform($self --key n {1})") ;;
+      interrupt) binds+=(--bind="${k[1]}:execute-silent($self --interrupt {1})") ;;
+      kill)      binds+=(--bind="${k[1]}:transform($self --key d {1})") ;;
+      new)       binds+=(--bind="${k[1]}:$new") ;;
+      group)     binds+=(--bind="${k[1]}:execute-silent($self --group)+reload-sync($self --list0)") ;;
+      preview)   binds+=(--bind="${k[1]}:toggle-preview+transform-preview-label:$label") ;;
+      close)     binds+=(--bind="${k[1]}:abort") ;;
+      reload)    binds+=(--bind="${k[1]}:reload-sync($self --list0)") ;;
+      down|up)   binds+=(--bind="${k[1]}:$a") ;;
+    esac
+    lock+="${k[1]},"
+    hint="${k[hint_col]}"
+    [ "$hint" = - ] || footer+="$B$TEXT${k[1]}$UB$DIM $hint  "
+  done < <(keymap)
 
   # Refresh through fzf's own HTTP port: at once when agent-state signals the
   # agents channel, and every 10s for the ages, after a sweep for agents that
@@ -423,7 +460,7 @@ panel() {
 
   # While a field is open the action letters and ↑↓ type or stay put, so the
   # row being written to can't change underneath.
-  local lock='y,x,m,n,d,c,r,g,p,j,k,q,up,down'
+  lock+='up,down'
   local open="unbind($lock)+disable-search+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
   local close="+clear-query+enable-search+hide-input+change-prompt(> )+rebind($lock)+reload-sync($self --list0)"
   export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
@@ -431,9 +468,8 @@ panel() {
     AGENTS_N="$open+transform-query(printf %s {3})+transform-prompt($self --key rename {3})" \
     AGENTS_D="unbind($lock)+disable-search+change-prompt(kill › )+transform-footer($self --key kill {3})"
 
-  local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
-
   # The first list loads through reload so it, too, sees $FZF_COLUMNS.
+  # shellcheck disable=SC2154   # palette sets the colours
   fzf </dev/null \
     --ansi --read0 --no-input --no-sort --layout=reverse --cycle \
     --delimiter=$'\t' --with-nth=2 --id-nth=1 --track --header-lines=1 \
@@ -453,16 +489,7 @@ panel() {
     --color="prompt:$bc,query:255" \
     --bind="enter:transform($self --key enter {1} {3})$close" \
     --bind="esc:transform($self --key esc)$close" \
-    --bind="y:execute-silent($self --approve {1})+reload-sync($self --list0)" \
-    --bind="x:execute-silent($self --interrupt {1})" \
-    --bind="m:transform($self --key m {1})" \
-    --bind="n:transform($self --key n {1})" \
-    --bind="d:transform($self --key d {1})" \
-    --bind="c:$new" \
-    --bind="r:reload-sync($self --list0)" \
-    --bind="g:execute-silent($self --group)+reload-sync($self --list0)" \
-    --bind="p:toggle-preview+transform-preview-label:$label" \
-    --bind='j:down,k:up,q:abort' \
+    ${binds[@]+"${binds[@]}"} \
     >/dev/null || true
   # Wake this panel's waiter so it sees fzf gone and exits now, not on the
   # next state change; any other open panel just reloads once.
@@ -477,6 +504,7 @@ case "${1:-}" in
   # the gap before each group is no row j and k have to stop on.
   --list0)     list | awk '/^-[^\t]/ { sub(/\t/, "\t\037") } 1' | tr '\n\037' '\0\n' ;;
   --rows)      rows | tr "$US" '\t' ;;
+  --keys)      keymap ;;
   --label)     label ;;
   --ping)      ping ;;
   --jump)      jump "${2:-}" "${3:-}" ;;

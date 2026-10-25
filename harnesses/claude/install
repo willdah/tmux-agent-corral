@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hooks/claude-install [--remove] [settings.json]
+# harnesses/claude/install [--remove|--check] [settings.json]
 #
 # Wires Claude Code's lifecycle hooks to agent-state so every Claude session
 # shows up in the tmux status line, window tabs and agents panel. Merges into
@@ -8,15 +8,48 @@
 # a re-run replaces our entries rather than adding duplicates.
 #
 #   --remove   take our hooks out again
+#   --check    only look: an "ok <what>" or "fail <what>" line per finding on
+#              stdout, for the doctor; exits 1 on a fail
 set -euo pipefail
 
 # shellcheck source=src/common.sh
-. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../src" && pwd)/common.sh"
+. "$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../../src" && pwd)/common.sh"
 
-remove=0
-[ "${1:-}" = --remove ] && { remove=1; shift; }
+# The hooks we install: event, matcher (- for every one), state.
+EVENTS='SessionStart     startup|resume|clear                 idle
+UserPromptSubmit -                                    running
+PostToolUse      -                                    running
+Notification     permission_prompt|elicitation_dialog input
+Stop             -                                    done
+SessionEnd       -                                    clear'
+
+remove=0 check=0
+case "${1:-}" in --remove) remove=1; shift ;; --check) check=1; shift ;; esac
 f="${1:-$HOME/.claude/settings.json}"
 cmd="$AGENTS_HOME/src/agent-state"
+
+if [ $check = 1 ]; then
+  bad=0
+  if ! have="$(jq -r '.hooks // {} | to_entries[]
+        | select(any(.value[]?.hooks[]?; (.command // "") | test("agent-state"))) | .key' "$f" 2>/dev/null)"; then
+    echo "fail can't read $f; run install.sh"; exit 1
+  fi
+  missing=''
+  for e in $(cut -d" " -f1 <<<"$EVENTS"); do
+    grep -qx "$e" <<<"$have" || missing+=" $e"
+  done
+  if [ -z "$have" ]; then echo "fail no hooks in $f; run install.sh"; bad=1
+  elif [ -n "$missing" ]; then echo "fail no hook for$missing in $f; run install.sh"; bad=1
+  elif [ "$(jq '.disableAllHooks // false' "$f")" = true ]; then echo "fail disableAllHooks is on in $f"; bad=1
+  else echo "ok hooks in $f"; fi
+  # The command is `"<path>" <state>`: the path has to be there.
+  while read -r p; do
+    [ -x "$p" ] || { echo "fail the hooks call $p, which isn't there; run install.sh"; bad=1; }
+  done < <(jq -r '.hooks // {} | .[][].hooks[]?.command // empty | select(test("agent-state"))' "$f" |
+             sed -n 's/^"\([^"]*\)".*/\1/p' | sort -u)
+  exit "$bad"
+fi
+[ $remove = 0 ] || [ -f "$f" ] || exit 0
 
 command -v jq >/dev/null 2>&1 || die "jq not found (brew install jq)"
 mkdir -p "$(dirname "$f")"
@@ -25,7 +58,7 @@ mkdir -p "$(dirname "$f")"
 tmp="$(mktemp "$f.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
 
-jq --arg cmd "$cmd" --arg events "$CLAUDE_EVENTS" --argjson remove "$remove" '
+jq --arg cmd "$cmd" --arg events "$EVENTS" --argjson remove "$remove" '
   # Ours = any hook whose command runs agent-state, wherever it was installed.
   def ours: (.command // "") | test("agent-state");
   # Drops only the groups and events that held nothing but our hooks; anything

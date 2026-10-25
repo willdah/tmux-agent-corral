@@ -61,9 +61,13 @@ TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 wrap="$(t new-window -d -P -F '#{pane_id}' -t side: "bash -c 'sleep 600'")"
 TMUX_PANE=$wrap "$here/src/agent-state" running </dev/null
 t set -p -t "$shell" @agent_dir /x \; set -p -t "$shell" @agent_project y \; set -p -t "$shell" @agent_name z
+# Bare means no child: wait out the shell's startup (Ubuntu's bashrc runs
+# lesspipe and dircolors), which sweep would rightly take for a wrapper's.
+sp="$(t display -p -t "$shell" '#{pane_pid}')"
+for _ in $(seq 50); do pgrep -P "$sp" >/dev/null || break; sleep 0.1; done
 "$here/src/agent-state" sweep
 f='#{@agent}#{@agent_state}#{@agent_since}#{@agent_name}#{@agent_dir}#{@agent_project}'
-[ -z "$(t display -p -t "$shell" "$f")" ] || fail "sweep left state on the stale shell pane: $(t display -p -t "$shell" "$f|#{pane_current_command}|#{pane_pid}")"
+[ -z "$(t display -p -t "$shell" "$f")" ] || fail "sweep left state on the stale shell pane: $(t display -p -t "$shell" "$f|#{pane_current_command}|#{pane_pid}"); its children: $(pgrep -lP "$sp" | tr '\n' ' ')"
 [ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "sweep cleared a live agent"
 [ "$(t display -p -t "$wrap" '#{@agent_state}')" = running ] || fail "sweep cleared a wrapper shell with a child"
 t kill-pane -t "$wrap"
@@ -122,9 +126,16 @@ for q in $qs; do TMUX_PANE=$q "$here/src/agent-state" clear </dev/null; done
 plain="$(NO_COLOR=1 "$here/src/agents" --list)"
 case "$plain" in *$'\033'*) fail "NO_COLOR left colour codes in" ;; esac
 printf '%s\n' "$plain" | grep "^$b" | grep -q '▲ needs you  Fix login' || fail "NO_COLOR row"
-t set -g @agent_c_input 196
-"$here/src/agents" --list | grep "^$b" | grep -q $'\033\\[38;5;196m' || fail "@agent_c_input not used"
-t set -g @agent_c_input 214
+# A colour is any of tmux's: colourN, #rrggbb, or one of the 16 names; one
+# the panel can't place falls back to the default.
+for col in 'colour196 38;5;196' '#ff8000 38;2;255;128;0' 'red 38;5;1' 'brightred 38;5;9' 'nonsense 38;5;214'; do
+  t set -g @agent_c_input "${col% *}"
+  "$here/src/agents" --list | grep "^$b" | grep -qF $'\033'"[${col#* }m" || fail "@agent_c_input ${col% *} not shown as ${col#* }"
+done
+t set -g @agent_c_border '#102030' \; set -g @agents_group on   # the group rule is in it
+"$here/src/agents" --list | grep -F $'\033[38;2;16;32;48m' >/dev/null || fail "@agent_c_border not used"
+t set -g @agents_group off
+t set -g @agent_c_input colour214 \; set -gu @agent_c_border \; source-file "$here/agents.tmux"
 h="$(NO_COLOR=1 "$here/src/agents" --list | sed -n 1p)"; case "$h" in "-	 STATE"*" SESSION "*" PROJECT "*" AGE") ;; *) fail "column headings: $h" ;; esac
 NO_COLOR=1 FZF_COLUMNS=40 "$here/src/agents" --list >/dev/null || fail "narrow list failed"
 NO_COLOR=1 FZF_COLUMNS=40 "$here/src/agents" --list | sed -n 1p | grep -q PROJECT && fail "narrow headings kept the project"
@@ -221,6 +232,12 @@ t set -g @agents_group off
 status="$(t display -p -t "$a" '#{E:status-right}')"
 case "$status" in *'▲▲'*'●'*'✓'*) ;; *) fail "status-right: $status" ;; esac
 case "$status" in *colour214*colour110*colour108*) ;; *) fail "status colours: $status" ;; esac
+t set -g @agent_c_input '#ff8000' \; set -g @agent_c_running brightblue
+status="$(t display -p -t "$a" '#{E:status-right}')"
+case "$status" in *'fg=#ff8000'*'fg=brightblue'*) ;; *) fail "status colours by hex and name: $status" ;; esac
+# A bare index, the old default, is upgraded as agents.tmux is read again.
+t set -g @agent_c_input 214 \; set -g @agent_c_running colour110 \; source-file "$here/agents.tmux"
+[ "$(t show -gv @agent_c_input)" = colour214 ] || fail "bare colour index not upgraded: $(t show -gv @agent_c_input)"
 tab="$(t display -p -t "$a" '#{E:window-status-format}')"
 case "$tab" in *'▲'*) ;; *) fail "tab: $tab" ;; esac   # marks run in pane order
 case "$tab" in *'●'*) ;; *) fail "tab: $tab" ;; esac
@@ -289,6 +306,22 @@ title | grep -q '─  agent-corral  ─' || fail "unfocused panel's title still 
 t select-pane -t "$p"; "$here/src/agents" --ping; sleep 0.5
 title | grep -q '\[ agent-corral \]' || fail "refocused panel's title not marked: $(title)"
 "$here/src/agents-dock" toggle "$w1"; sleep 0.5
+
+# @agents_panel_key_<action> moves a panel key, footer hint and all; empty
+# unbinds it.
+t set -g @agents_panel_key_preview P \; set -g @agents_panel_key_kill '' \; set -g @agents_panel_key_group G
+"$here/src/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"; sleep 1.5
+foot="$(t capture-pane -p -t "$p" | tail -3)"
+grep -q 'P peek' <<<"$foot" || fail "moved key not in the footer: $foot"
+grep -q 'kill' <<<"$foot" && fail "unbound key still in the footer: $foot"
+grp="$(t show -gv @agents_group)"
+t send-keys -t "$p" g; sleep 0.5
+[ "$(t show -gv @agents_group)" = "$grp" ] || fail "g still groups after moving to G"
+t send-keys -t "$p" G; sleep 0.5
+[ "$(t show -gv @agents_group)" != "$grp" ] || fail "G did not group"
+t send-keys -t "$p" G; sleep 0.5
+"$here/src/agents-dock" toggle "$w1"; sleep 0.5
+t set -gu @agents_panel_key_preview \; set -gu @agents_panel_key_kill \; set -gu @agents_panel_key_group
 
 # Enter in the docked panel: the panel follows to the agent's window and keeps
 # focus, the agent is that window's last pane, and a finished one reads seen.
@@ -387,7 +420,7 @@ t capture-pane -p -t "$ec" | grep -qF '^[' || fail "x sent no Escape"
 "$here/src/agents" --interrupt "$ec"; sleep 0.3
 [ "$(t capture-pane -p -t "$ec" | grep -o '\^\[' | wc -l | tr -d ' ')" = 1 ] || fail "x sent a second Escape to an idle agent"
 for q in $cp $ec; do t kill-pane -t "$q"; done
-grep -q sessionStart "$here/hooks/copilot.json" && fail "copilot sessionStart hook is back: it fires after the first prompt"
+grep -q sessionStart "$here/harnesses/copilot/hooks.json" && fail "copilot sessionStart hook is back: it fires after the first prompt"
 
 # wait: returns once the pane is in a wanted state (input or done when none
 # is named), 1 on the timeout or a pane that is gone.
@@ -446,8 +479,10 @@ TMUX_PANE=$d "$here/src/agent-state" input </dev/null; sleep 0.3
 [ "$(wc -l <"$nf" | tr -d ' ')" = 2 ] || fail "notify off still notified"
 t set -g @agents_notify tmux
 TMUX_PANE=$d "$here/src/agent-state" done </dev/null || fail "notify tmux failed"
-grep -q '^set -g @agents_notify tmux' "$here/agents.tmux" || fail "agents.tmux default is not tmux"
-t set -g @agents_notify off
+grep -q '^set -goq @agents_notify tmux' "$here/agents.tmux" || fail "agents.tmux default is not tmux"
+# A setting made before agents.tmux is sourced survives it.
+t set -g @agents_notify off \; source-file "$here/agents.tmux"
+[ "$(t show -gv @agents_notify)" = off ] || fail "sourcing agents.tmux overwrote @agents_notify"
 kill "$nc" 2>/dev/null || true
 "$here/src/agents" --rename "$d"
 TMUX_PANE=$a "$here/src/agent-state" running </dev/null
@@ -481,6 +516,35 @@ nw4="$(TMUX_PANE=$a new --dir "$proj" --session new --agent "$tmp/bin/claude")"
 for q in $nw $nw2 $nw3 $nw4; do t kill-pane -t "$q"; done
 new --dir "$tmp/nowhere" --agent "$tmp/bin/claude" 2>/dev/null && fail "agents-new took a missing folder"
 new --dir "$proj" --agent no-such-agent 2>/dev/null && fail "agents-new took a missing agent"
+# A raw command can carry its own arguments.
+nr="$(new --dir "$proj" --agent "$tmp/bin/claude --flag" --prompt go)" || fail "agents-new took no command with arguments"
+said "$nr" 'ran:claude[--flag][--][go]'
+# Launch profiles: @agents_launch_<name> is a command, its harness the first
+# word naming one; empty hides one, as does a command not on PATH. The
+# default leads, then its harness's others, then the other harnesses', then
+# those of none.
+printf '#!/bin/sh\nprintf "ran:aider"; printf "[%%s]" "$@"; echo\nexec sleep 600\n' >"$tmp/bin/aider"; chmod +x "$tmp/bin/aider"
+t set -g @agents_launch_claude '' \; set -g @agents_launch_pi '' \
+  \; set -g @agents_launch_copilot "$tmp/bin/copilot" \
+  \; set -g @agents_launch_yolo "$tmp/bin/claude --yolo" \
+  \; set -g @agents_launch_hr "env HR=1 $tmp/bin/copilot" \
+  \; set -g @agents_launch_zz "$tmp/bin/aider --model claude" \
+  \; set -g @agents_launch_gone "/no/such/claude" \
+  \; set -g @agents_launch_default hr
+want="hr	copilot	env HR=1 $tmp/bin/copilot
+copilot	copilot	$tmp/bin/copilot
+yolo	claude	$tmp/bin/claude --yolo
+zz		$tmp/bin/aider --model claude"
+[ "$(new --profiles)" = "$want" ] || fail "profiles: $(new --profiles)"
+nr2="$(new --dir "$proj" --agent hr --prompt go)"; said "$nr2" 'ran:copilot[-i][go]'
+nr3="$(new --dir "$proj" --agent zz --prompt go)"; said "$nr3" 'ran:aider[--model][claude][--][go]'   # an argument names no harness
+nr4="$(new --dir "$proj" --prompt go)"; said "$nr4" 'ran:copilot[-i][go]'   # the default
+new --dir "$proj" --agent gone 2>/dev/null && fail "agents-new took a profile not on PATH"
+cp "$tmp/bin/aider" "$tmp/bin/pi"   # on PATH, so only hiding can refuse it
+PATH="$tmp/bin:$PATH" new --dir "$proj" --agent pi 2>/dev/null && fail "agents-new started a hidden profile"
+for o in claude pi copilot yolo hr zz gone default; do t set -gu "@agents_launch_$o"; done
+t source-file "$here/agents.tmux"
+for q in $nr $nr2 $nr3 $nr4; do t kill-pane -t "$q"; done
 new --dir "$proj" --branch x --agent "$tmp/bin/claude" 2>/dev/null && fail "agents-new made a branch outside a repo"
 git init -q "$tmp/up"; G() { git -C "$1" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "${@:2}"; }
 G "$tmp/up" commit -q --allow-empty -m up
@@ -520,6 +584,20 @@ for p in $a $b $d; do TMUX_PANE=$p "$here/src/agent-state" clear </dev/null; don
 [ "$("$here/src/agents" --list | sed -n 1p | grep -c SESSION)$("$here/src/agents" --list | wc -l | tr -d ' ')" = 12 ] || fail "empty state lost its headings"
 NO_COLOR=1 "$here/src/agents" --list | grep -q $'\033' && fail "NO_COLOR left colour codes in the empty state"
 
+# The prefix keys: @agents_key and @agents_key_dock, set before agents.tmux
+# is sourced; empty binds nothing. Each on a fresh server, as a tmux.conf
+# would be.
+keys() { tmux -L "$sock-k" -f /dev/null new -d \; set -g @x 1 "$@" \; source-file "$here/agents.tmux" \; list-keys -T prefix; tmux -L "$sock-k" kill-server; }
+kb="$(keys)"
+grep -qE -- '-T prefix a +display-popup .*/src/agents$' <<<"$kb" || fail "a does not open the panel: $kb"
+grep -qE -- "-T prefix A +run-shell .*/src/agents-dock toggle '?#\{window_id\}" <<<"$kb" || fail "A does not dock the panel: $kb"
+kb="$(keys \; set -g @agents_key M-a \; set -g @agents_key_dock '')"
+grep -qE -- '-T prefix M-a +display-popup .*/src/agents$' <<<"$kb" || fail "@agents_key not bound: $kb"
+grep -q 'agents-dock' <<<"$kb" && fail "empty @agents_key_dock still bound: $kb"
+grep -qE -- '-T prefix a +display-popup' <<<"$kb" && fail "a still bound with @agents_key set: $kb"
+kb="$(keys \; set -g @agents_key 0)"   # a format's false, but a key
+grep -qE -- '-T prefix 0 +display-popup .*/src/agents$' <<<"$kb" || fail "@agents_key 0 not bound: $kb"
+
 # install.sh, in a throwaway home with no tmux server to reload: the tmux.conf
 # block goes in once, and --remove takes out only that.
 # Claude, Copilot and Pi look installed, and Claude already has a hook of the
@@ -534,9 +612,9 @@ inst; inst
 [ -L "$h/.config/tmux/agents" ] || fail "install.sh did not link the clone"
 [ "$(ours)" = 6 ] || fail "claude hooks: want 6 of ours after two installs, got $(ours)"
 jq -e '.hooks.Stop[] | select(.hooks[0].command == "echo mine")' "$h/.claude/settings.json" >/dev/null || fail "install dropped the user's claude hook"
-[ -L "$h/.copilot/hooks/agent-state.json" ] || fail "install.sh did not link the copilot hooks"
-[ -L "$h/.pi/agent/extensions/agent-state.ts" ] || fail "install.sh did not link the pi extension"
-jq empty "$here/hooks/copilot.json" || fail "hooks/copilot.json is not valid JSON"
+[ "$(readlink "$h/.copilot/hooks/agent-state.json")" = "$h/.config/tmux/agents/harnesses/copilot/hooks.json" ] || fail "install.sh did not link the copilot hooks"
+[ "$(readlink "$h/.pi/agent/extensions/agent-state.ts")" = "$h/.config/tmux/agents/harnesses/pi/extension.ts" ] || fail "install.sh did not link the pi extension"
+jq empty "$here/harnesses/copilot/hooks.json" || fail "harnesses/copilot/hooks.json is not valid JSON"
 # doctor, on that install and this server: all good; then each break is named.
 doc() { out="$(NO_COLOR=1 HOME="$h" "$here/src/doctor" 2>&1)"; }
 doc || fail "doctor failed on a good install: $out"
@@ -550,6 +628,30 @@ t set -g @agents_notify /no/such/notifier
 doc && fail "doctor passed a missing notifier"
 case "$out" in *'fail @agents_notify runs /no/such/notifier'*) ;; *) fail "doctor on the notifier: $out" ;; esac
 t set -g @agents_notify off
+# Settings: a bare colour index (tmux styles refuse it), a colour the panel
+# can't place, two panel actions on one key, a profile off PATH, and a prefix
+# key set too late to be bound.
+t set -g @agent_c_done 108
+doc && fail "doctor passed a bare colour index"
+case "$out" in *'fail @agent_c_done is 108; write colour108'*) ;; *) fail "doctor on a bare colour: $out" ;; esac
+t set -g @agent_c_done darkorange
+doc; case "$out" in *"warn @agent_c_done is darkorange, which the panel can't show"*) ;; *) fail "doctor on an X11 colour: $out" ;; esac
+t set -g @agent_c_done colour108 \; set -g @agents_panel_key_group y
+doc; case "$out" in *'warn panel keys: y is both approve and group'*) ;; *) fail "doctor on a shared panel key: $out" ;; esac
+# fzf's lists split on , and its binds on :, so neither can be a key.
+t set -g @agents_panel_key_group ,
+[ "$("$here/src/agents" --keys | awk '$1 == "group" { print $2 }')" = g ] || fail "a , key replaced group's g"
+doc; case "$out" in *"warn @agents_panel_key_group is ,, which the panel can't bind"*) ;; *) fail "doctor on a , key: $out" ;; esac
+t set -gu @agents_panel_key_group \; set -g @agents_launch_zz /no/such/agent
+doc; case "$out" in *"warn @agents_launch_zz runs /no/such/agent, which isn't on PATH"*) ;; *) fail "doctor on a profile off PATH: $out" ;; esac
+t set -gu @agents_launch_zz \; set -g @agents_key M-z
+doc; case "$out" in *"warn @agents_key is M-z, but prefix M-z doesn't open the panel"*) ;; *) fail "doctor on a late @agents_key: $out" ;; esac
+t set -g @agents_key a
+# A hook link that resolves, but not to this install's hook (a copy left from
+# before the move to harnesses/).
+ln -sfn "$here/README.md" "$h/.copilot/hooks/agent-state.json"
+doc && fail "doctor passed a copilot link to elsewhere"
+case "$out" in *"fail copilot: $h/.copilot/hooks/agent-state.json points at $here/README.md"*) ;; *) fail "doctor on a stray link: $out" ;; esac
 rm "$h/.copilot/hooks/agent-state.json"
 doc && fail "doctor passed missing copilot hooks"
 case "$out" in *'fail copilot: no '*) ;; *) fail "doctor on copilot: $out" ;; esac
