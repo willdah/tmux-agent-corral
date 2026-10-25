@@ -13,7 +13,7 @@ D=$'\033[2m' B=$'\033[1m' G=$'\033[32m' Y=$'\033[33m' C=$'\033[36m' R=$'\033[0m'
 
 # state <st> <minutes ago>: report st, backdated so the ages look lived in.
 state() {
-  "$here/../agent-state" "$1" "$harness"
+  "$here/../src/agent-state" "$1" "$harness"
   tmux set -p -t "$TMUX_PANE" @agent_since $(( $(date +%s) - $2 * 60 ))
 }
 

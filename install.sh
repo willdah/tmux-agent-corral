@@ -86,7 +86,7 @@ main() {
   [ -f "$conf" ] || [ ! -f "$HOME/.config/tmux/tmux.conf" ] || conf="$HOME/.config/tmux/tmux.conf"
 
   if [ $remove = 1 ]; then
-    [ -f "$HOME/.claude/settings.json" ] && "$here/install-claude-hooks" --remove
+    [ -f "$HOME/.claude/settings.json" ] && "$here/hooks/claude-install" --remove
     unlink_ours "$copilot"
     unlink_ours "$pi"
     unlink_ours "$dest"
@@ -112,9 +112,9 @@ main() {
   [ "$dest" -ef "$here" ] || link "$here" "$dest"
 
   # Agent configs are touched only for agents that are installed.
-  if command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude" ]; then "$here/install-claude-hooks"; fi
-  if command -v copilot >/dev/null 2>&1 || [ -d "$HOME/.copilot" ]; then link "$dest/copilot-hooks.json" "$copilot"; fi
-  if command -v pi >/dev/null 2>&1 || [ -d "$HOME/.pi" ]; then link "$dest/pi-agent-state.ts" "$pi"; fi
+  if command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude" ]; then "$here/hooks/claude-install"; fi
+  if command -v copilot >/dev/null 2>&1 || [ -d "$HOME/.copilot" ]; then link "$dest/hooks/copilot.json" "$copilot"; fi
+  if command -v pi >/dev/null 2>&1 || [ -d "$HOME/.pi" ]; then link "$dest/hooks/pi.ts" "$pi"; fi
 
   if grep -qs 'agents/agents.tmux' "$conf"; then
     ok "$conf already sources agents.tmux"
@@ -134,7 +134,7 @@ main() {
       rm -f "$tmp"
     fi
   fi
-  ok "done; restart running agents so they pick up the hooks ($dest/doctor checks the setup)"
+  ok "done; restart running agents so they pick up the hooks ($dest/src/doctor checks the setup)"
 }
 
 main "$@"

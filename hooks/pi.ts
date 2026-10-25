@@ -6,7 +6,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 
-const cmd = `${homedir()}/.config/tmux/agents/agent-state`;
+const cmd = `${homedir()}/.config/tmux/agents/src/agent-state`;
 
 // Synchronous so the clear on quit lands before Pi exits; a failure must
 // never get in the agent's way.

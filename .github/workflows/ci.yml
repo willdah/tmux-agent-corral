@@ -31,7 +31,7 @@ jobs:
             curl -fsSL "https://github.com/junegunn/fzf/releases/download/v$v/fzf-$v-linux_amd64.tar.gz" | sudo tar xz -C /usr/local/bin
           fi
           tmux -V; fzf --version; jq --version
-      - run: ./smoke-test
+      - run: scripts/smoke-test
 
   lint:
     runs-on: ubuntu-latest
@@ -40,7 +40,7 @@ jobs:
       - name: shellcheck
         run: shellcheck -S warning $(git grep -lE '^#!/usr/bin/env bash' -- ':!*.md')
       - name: JSON
-        run: jq empty copilot-hooks.json
+        run: jq empty hooks/copilot.json
 
   # release.yml picks the version bump from these prefixes.
   pr-title:

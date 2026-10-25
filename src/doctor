@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # doctor: checks that tmux-agent-corral is wired up, and says what to fix.
 #
-#   ~/.config/tmux/agents/doctor
+#   ~/.config/tmux/agents/src/doctor
 #
 # Looks at the dependencies, the install at ~/.config/tmux/agents (the path
 # the hooks and key bindings call), the running tmux server (agents.tmux
@@ -39,7 +39,7 @@ for c in git jq curl; do
 done
 
 # The install.
-if [ -x "$dest/agent-state" ] && [ -x "$dest/agents" ]; then
+if [ -x "$dest/src/agent-state" ] && [ -x "$dest/src/agents" ]; then
   ok "installed at $dest$([ -L "$dest" ] && printf ' → %s' "$(cd -P "$dest" && pwd)")"
 else fail "nothing at $dest; run install.sh"; fi
 
@@ -83,7 +83,7 @@ if ! tmux info >/dev/null 2>&1; then
 fi
 if tmux show-hooks -g 'pane-focus-in[40]' 2>/dev/null | grep -q agent-state; then ok "tmux has agents.tmux loaded"
 else fail "tmux hasn't loaded agents.tmux; source it from your tmux.conf (see the README)"; fi
-tmux list-keys 2>/dev/null | grep -q '/agents/agents' || warn "no key opens the panel"
+tmux list-keys 2>/dev/null | grep -q '/agents/src/agents' || warn "no key opens the panel"
 tmux show -gv status-right 2>/dev/null | grep -qF '@agents_status' ||
   warn 'status-right has no #{E:@agents_status}, so the status line shows no marks'
 tmux show -gv window-status-format 2>/dev/null | grep -qF '@agent_tab' ||
