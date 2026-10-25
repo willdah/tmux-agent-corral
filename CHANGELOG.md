@@ -7,14 +7,6 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
-## [1.0.0](https://github.com/willdah/tmux-agent-corral/compare/0.13.0...1.0.0) - 2026-10-25
-
-### Changed
-
-- **Breaking:** group the scripts into src/, hooks/ and scripts/
-- **Breaking:** group scripts into src/, hooks/ and scripts/
-- **Breaking:** the hooks and links point at the old root paths; re-run
-
 ## [0.13.0](https://github.com/willdah/tmux-agent-corral/compare/0.12.0...0.13.0) - 2026-10-18
 
 ### Added
