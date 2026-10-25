@@ -165,7 +165,7 @@ set -g @agents_launch_default hr   # listed first, and what agents-new takes wit
 set -g @agents_launch_pi      ""   # empty hides one
 ```
 
-A profile's harness is the first word of its command, before any flag, that names one (`headroom wrap claude` is Claude; `aider --model claude` is none), which decides how its first prompt is passed (`-i` for Copilot, else `--`). A command of no known harness still starts, with `-- PROMPT` after it. The list shows only profiles whose first word is on PATH, the default first, then the rest of its harness's, then the other harnesses', then those of none. Without `@agents_launch_default`, `claude` leads.
+A profile's harness is the first word of its command, before any flag, that names one (`headroom wrap claude` is Claude; so is `claude --model opus`, whose flags and arguments never count), which decides how its first prompt is passed (`-i` for Copilot, else `--`). A command of no known harness still starts, with `-- PROMPT` after it. The list shows only profiles whose first word is on PATH, the default first, then the rest of its harness's, then the other harnesses', then those of none. Without `@agents_launch_default`, `claude` leads.
 
 The hooks are registered at index `[40]` (`session-window-changed`, `client-session-changed`, `pane-focus-in`), so they sit alongside your own. `agents.tmux` also turns on `focus-events`.
 

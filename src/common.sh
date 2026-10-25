@@ -69,8 +69,8 @@ harnesses() {
 
 # harness_of COMMAND: the built-in harness COMMAND runs: the first of its
 # words named after one, so a wrapper's (headroom wrap claude) counts too.
-# It stops at the first flag: what follows is arguments (aider --model
-# claude). Prints nothing for none.
+# It stops at the first flag: what follows is the command's own arguments,
+# which may name a harness without running it. Prints nothing for none.
 harness_of() {
   local w ws
   read -r -a ws <<<"$1"
