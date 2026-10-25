@@ -40,13 +40,14 @@ set-hook -g pane-focus-in[40] 'if -F "#{==:#{@agent_state},done}" "run-shell -b 
 set-hook -g pane-focus-in[41]  'if -F "#{@agents_dock}" "run-shell -b \"~/.config/tmux/agents/src/agents --ping\""'
 set-hook -g pane-focus-out[40] 'if -F "#{@agents_dock}" "run-shell -b \"~/.config/tmux/agents/src/agents --ping\""'
 
-# State colours (256-colour indexes), shared by the status formats and the
-# panel.
-set -goq @agent_c_input   214   # ▲ needs you
-set -goq @agent_c_running 110   # ● working
-set -goq @agent_c_done    108   # ✓ finished, not yet looked at
-set -goq @agent_c_text    250   # panel greys: raise to ~236/240 on a light theme
-set -goq @agent_c_dim     247
+# Colours, shared by the status formats and the panel: colourN, #rrggbb, or
+# one of the 16 names (red, brightred...).
+set -goq @agent_c_input   colour214   # ▲ needs you
+set -goq @agent_c_running colour110   # ● working
+set -goq @agent_c_done    colour108   # ✓ finished, not yet looked at
+set -goq @agent_c_text    colour250   # panel greys: raise to ~236/240 on a light theme
+set -goq @agent_c_dim     colour247
+set -goq @agent_c_border  colour238   # the panel's borders and group rules
 
 # The panel groups its rows under each tmux session's name when this is on;
 # g in the panel toggles it.
@@ -80,9 +81,9 @@ set -goq @agents_notify tmux
 # Formats for your status line and tabs. Idle agents stay quiet.
 #   @agents_status  every agent in every session, waiting first: ▲▲●✓
 #   @agent_tab      the marks of one window's panes, with a leading space
-set -g @agent_pip     "#{?#{==:#{@agent_state},input},#[fg=colour#{@agent_c_input}]▲,#{?#{==:#{@agent_state},running},#[fg=colour#{@agent_c_running}]●,#{?#{==:#{@agent_state},done},#[fg=colour#{@agent_c_done}]✓,}}}"
+set -g @agent_pip     "#{?#{==:#{@agent_state},input},#[fg=#{@agent_c_input}]▲,#{?#{==:#{@agent_state},running},#[fg=#{@agent_c_running}]●,#{?#{==:#{@agent_state},done},#[fg=#{@agent_c_done}]✓,}}}"
 set -g @agent_tab     "#{?#{P:#{E:@agent_pip}}, #{P:#{E:@agent_pip}}#[default],}"
 set -g @agents_in     "#{S:#{W:#{P:#{?#{==:#{@agent_state},input},▲,}}}}"
 set -g @agents_run    "#{S:#{W:#{P:#{?#{==:#{@agent_state},running},●,}}}}"
 set -g @agents_done   "#{S:#{W:#{P:#{?#{==:#{@agent_state},done},✓,}}}}"
-set -g @agents_status "#[fg=colour#{@agent_c_input},bold]#{E:@agents_in}#[nobold fg=colour#{@agent_c_running}]#{E:@agents_run}#[fg=colour#{@agent_c_done}]#{E:@agents_done}#[default]"
+set -g @agents_status "#[fg=#{@agent_c_input},bold]#{E:@agents_in}#[nobold fg=#{@agent_c_running}]#{E:@agents_run}#[fg=#{@agent_c_done}]#{E:@agents_done}#[default]"

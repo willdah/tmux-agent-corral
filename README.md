@@ -136,14 +136,15 @@ The agent starts in a new window named after its folder (a new session is named 
 
 ## Configure
 
-Set any of these in your tmux.conf, before or after the `source-file` line: `agents.tmux` only fills in what you haven't set. Colour values are 256-colour indexes.
+Set any of these in your tmux.conf, before or after the `source-file` line: `agents.tmux` only fills in what you haven't set. A colour is `colourN` (0 to 255), `#rrggbb`, or one of the 16 names (`red`, `brightred`, …).
 
 | Option | Default | Colours |
 |---|---|---|
-| `@agent_c_input` | `214` | `▲` needs you |
-| `@agent_c_running` | `110` | `●` working |
-| `@agent_c_done` | `108` | `✓` finished |
-| `@agent_c_text`, `@agent_c_dim` | `250`, `247` | panel text; use about `236`/`240` on a light theme |
+| `@agent_c_input` | `colour214` | `▲` needs you |
+| `@agent_c_running` | `colour110` | `●` working |
+| `@agent_c_done` | `colour108` | `✓` finished |
+| `@agent_c_text`, `@agent_c_dim` | `colour250`, `colour247` | panel text; use about `colour236`/`colour240` on a light theme |
+| `@agent_c_border` | `colour238` | the panel's borders and group rules |
 
 `set -g @agents_roots "~/Projects ~/work"` lists those folders' subfolders as places to start an agent with `c`.
 

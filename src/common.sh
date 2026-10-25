@@ -22,6 +22,45 @@ atleast() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
 # has_agent <name>: the agent looks installed (its command, or its config dir).
 has_agent() { command -v "$1" >/dev/null 2>&1 || [ -d "$HOME/.$1" ]; }
 
+# fzfcolour <var> <colour>: a tmux colour (colourN, #rrggbb, one of the 16
+# names, or a bare index) as fzf's --color takes it: an index, or #rrggbb.
+# Fails on one it can't place, such as an X11 name or a typo.
+fzfcolour() {
+  local s="$2" c i=0
+  case "$s" in
+    colour*|color*) s="${s#colo}"; s="${s#u}"; s="${s#r}" ;;
+    '#'*) [[ "$s" =~ ^#[0-9a-fA-F]{6}$ ]] || return 1; printf -v "$1" '%s' "$s"; return 0 ;;
+    *[!0-9]*)
+      for c in black red green yellow blue magenta cyan white brightblack brightred \
+               brightgreen brightyellow brightblue brightmagenta brightcyan brightwhite; do
+        [ "$c" = "$s" ] && { printf -v "$1" '%s' "$i"; return 0; }
+        i=$(( i + 1 ))
+      done
+      return 1 ;;
+  esac
+  case "$s" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$s" -le 255 ] || return 1
+  printf -v "$1" '%s' "$s"
+}
+
+# palette: the panel's colours, from @agent_c_* so the panel and the status
+# line can't drift apart; one fzfcolour can't place falls back to its
+# default. Sets AMBER BLUE GREEN TEXT DIM FAINT to the escapes that turn
+# each on (empty under NO_COLOR) and R to the reset, and ac bc gc tc dc fc to
+# the same colours for fzf's --color.
+palette() {
+  local i n vals defs=(214 110 108 250 247 238) fzs=(ac bc gc tc dc fc) escs=(AMBER BLUE GREEN TEXT DIM FAINT)
+  IFS='|' read -r -a vals <<<"$(tmux display -p '#{@agent_c_input}|#{@agent_c_running}|#{@agent_c_done}|#{@agent_c_text}|#{@agent_c_dim}|#{@agent_c_border}' 2>/dev/null || true)"
+  R=$'\033[0m'; [ -z "${NO_COLOR:-}" ] || R=''
+  for i in 0 1 2 3 4 5; do
+    fzfcolour n "${vals[i]:-}" || n="${defs[i]}"
+    printf -v "${fzs[i]}" '%s' "$n"
+    if [ -n "${NO_COLOR:-}" ]; then printf -v "${escs[i]}" '%s' ''
+    elif [ "${n:0:1}" = '#' ]; then printf -v "${escs[i]}" '\033[38;2;%d;%d;%dm' "0x${n:1:2}" "0x${n:3:2}" "0x${n:5:2}"
+    else printf -v "${escs[i]}" '\033[38;5;%sm' "$n"; fi
+  done
+}
+
 # harnesses: the built-in harnesses' names, one per line.
 harnesses() {
   local a

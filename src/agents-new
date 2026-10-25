@@ -179,19 +179,15 @@ sessions() {
 }
 
 # The panel's palette, so a step looks like the panel it came from.
-read -r BLUE TEXT DIM <<<"$(tmux display -p '#{@agent_c_running} #{@agent_c_text} #{@agent_c_dim}' 2>/dev/null || true)"
-bc="${BLUE:-110}" tc="${TEXT:-250}" dc="${DIM:-247}" fc=238
+palette
 B=$'\033[1m' UB=$'\033[22m'
-if [ -n "${NO_COLOR:-}" ]; then TEXT='' DIM='' AMBER='' R=''
-else printf -v TEXT '\033[38;5;%sm' "$tc"; printf -v DIM '\033[38;5;%sm' "$dc"
-     printf -v AMBER '\033[38;5;%sm' "$(tmux display -p '#{@agent_c_input}' 2>/dev/null || echo 214)"; R=$'\033[0m'
-fi
 
 # step PROMPT NOTE [fzf args]: one question, its choices on stdin; prints the
 # query, then the chosen line. NOTE shows above the choices: what went wrong
 # last time, else how to answer.
 step() {
   local prompt="$1" note="$2"; shift 2
+  # shellcheck disable=SC2154   # palette sets the colours
   fzf --ansi --layout=reverse --cycle --print-query --delimiter=$'\t' --with-nth=2.. \
     --border=rounded --border-label=' new agent ' --border-label-pos=3 \
     --info=hidden --pointer='▌' --gutter=' ' --prompt="$prompt" --header="$note" \

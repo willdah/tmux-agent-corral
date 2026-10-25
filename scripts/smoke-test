@@ -122,9 +122,16 @@ for q in $qs; do TMUX_PANE=$q "$here/src/agent-state" clear </dev/null; done
 plain="$(NO_COLOR=1 "$here/src/agents" --list)"
 case "$plain" in *$'\033'*) fail "NO_COLOR left colour codes in" ;; esac
 printf '%s\n' "$plain" | grep "^$b" | grep -q '▲ needs you  Fix login' || fail "NO_COLOR row"
-t set -g @agent_c_input 196
-"$here/src/agents" --list | grep "^$b" | grep -q $'\033\\[38;5;196m' || fail "@agent_c_input not used"
-t set -g @agent_c_input 214
+# A colour is any of tmux's: colourN, #rrggbb, or one of the 16 names; one
+# the panel can't place falls back to the default.
+for col in 'colour196 38;5;196' '#ff8000 38;2;255;128;0' 'red 38;5;1' 'brightred 38;5;9' 'nonsense 38;5;214'; do
+  t set -g @agent_c_input "${col% *}"
+  "$here/src/agents" --list | grep "^$b" | grep -qF $'\033'"[${col#* }m" || fail "@agent_c_input ${col% *} not shown as ${col#* }"
+done
+t set -g @agent_c_border '#102030' \; set -g @agents_group on   # the group rule is in it
+"$here/src/agents" --list | grep -F $'\033[38;2;16;32;48m' >/dev/null || fail "@agent_c_border not used"
+t set -g @agents_group off
+t set -g @agent_c_input colour214 \; set -gu @agent_c_border \; source-file "$here/agents.tmux"
 h="$(NO_COLOR=1 "$here/src/agents" --list | sed -n 1p)"; case "$h" in "-	 STATE"*" SESSION "*" PROJECT "*" AGE") ;; *) fail "column headings: $h" ;; esac
 NO_COLOR=1 FZF_COLUMNS=40 "$here/src/agents" --list >/dev/null || fail "narrow list failed"
 NO_COLOR=1 FZF_COLUMNS=40 "$here/src/agents" --list | sed -n 1p | grep -q PROJECT && fail "narrow headings kept the project"

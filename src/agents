@@ -39,20 +39,11 @@ self="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE
 # shellcheck source=src/common.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-# Palette: the state colours come from ~/.tmux.conf (@agent_c_*), so the panel
-# and the status line can't drift apart. Both greys clear 4.5:1 on a dark
-# terminal, the selected row included; a light theme sets @agent_c_text/dim.
-read -r AMBER BLUE GREEN TEXT DIM <<<"$(tmux display -p '#{@agent_c_input} #{@agent_c_running} #{@agent_c_done} #{@agent_c_text} #{@agent_c_dim}' 2>/dev/null || true)"
-AMBER="${AMBER:-214}" BLUE="${BLUE:-110}" GREEN="${GREEN:-108}" TEXT="${TEXT:-250}" DIM="${DIM:-247}"
-FAINT=238   # the group rule: structure, not text, so the border's grey
-bc=$BLUE tc=$TEXT dc=$DIM fc=$FAINT   # the indexes themselves, for fzf's --color
+# Palette (see common.sh): both greys clear 4.5:1 on a dark terminal, the
+# selected row included; a light theme sets @agent_c_text/dim. FAINT, the
+# group rule, is structure, not text, so the border's grey.
+palette
 B=$'\033[1m' UB=$'\033[22m'   # bold carries the footer's keys; NO_COLOR keeps it
-if [ -n "${NO_COLOR:-}" ]; then
-  AMBER='' BLUE='' GREEN='' TEXT='' DIM='' FAINT='' R=''
-else
-  for v in AMBER BLUE GREEN TEXT DIM FAINT; do printf -v "$v" '\033[38;5;%sm' "${!v}"; done
-  R=$'\033[0m'
-fi
 
 # The helpers below write into the variable named by their first argument
 # (printf -v) instead of printing: --list runs on every refresh, and a $( )
@@ -467,6 +458,7 @@ KEYS
     AGENTS_D="unbind($lock)+disable-search+change-prompt(kill › )+transform-footer($self --key kill {3})"
 
   # The first list loads through reload so it, too, sees $FZF_COLUMNS.
+  # shellcheck disable=SC2154   # palette sets the colours
   fzf </dev/null \
     --ansi --read0 --no-input --no-sort --layout=reverse --cycle \
     --delimiter=$'\t' --with-nth=2 --id-nth=1 --track --header-lines=1 \
