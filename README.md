@@ -145,6 +145,7 @@ Set any of these in your tmux.conf, before or after the `source-file` line: `age
 | `@agent_c_done` | `colour108` | `✓` finished |
 | `@agent_c_text`, `@agent_c_dim` | `colour250`, `colour247` | panel text; use about `colour236`/`colour240` on a light theme |
 | `@agent_c_border` | `colour238` | the panel's borders and group rules |
+| `@agent_c_bg` | the terminal's | the panel's background |
 
 `set -g @agents_roots "~/Projects ~/work"` lists those folders' subfolders as places to start an agent with `c`.
 

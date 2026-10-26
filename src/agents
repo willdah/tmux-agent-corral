@@ -483,7 +483,7 @@ panel() {
     --preview='case {1} in %*) tmux capture-pane -pe -J -t {1} -S -80 | awk "{l[NR]=\$0} NF{n=NR} END{for(i=1;i<=n;i++)print l[i]}" ;; esac' \
     --preview-window="$preview" \
     --bind="focus:transform-preview-label:$label" \
-    --color="fg:$tc,bg:-1,fg+:255,bg+:236,hl:$bc,hl+:$bc" \
+    --color="fg:$tc,bg:$bgc,fg+:255,bg+:236,hl:$bc,hl+:$bc" \
     --color="border:$fc,label:$bc,preview-border:$fc,preview-label:$dc,footer-border:$fc" \
     --color="pointer:$bc,marker:$bc,gutter:-1,info:$dc,header:$tc" \
     --color="prompt:$bc,query:255" \

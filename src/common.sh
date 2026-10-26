@@ -47,10 +47,11 @@ fzfcolour() {
 # line can't drift apart; one fzfcolour can't place falls back to its
 # default. Sets AMBER BLUE GREEN TEXT DIM FAINT to the escapes that turn
 # each on (empty under NO_COLOR) and R to the reset, and ac bc gc tc dc fc to
-# the same colours for fzf's --color.
+# the same colours for fzf's --color, and bgc to @agent_c_bg's (-1, the
+# terminal's own, when unset).
 palette() {
   local i n vals defs=(214 110 108 250 247 238) fzs=(ac bc gc tc dc fc) escs=(AMBER BLUE GREEN TEXT DIM FAINT)
-  IFS='|' read -r -a vals <<<"$(tmux display -p '#{@agent_c_input}|#{@agent_c_running}|#{@agent_c_done}|#{@agent_c_text}|#{@agent_c_dim}|#{@agent_c_border}' 2>/dev/null || true)"
+  IFS='|' read -r -a vals <<<"$(tmux display -p '#{@agent_c_input}|#{@agent_c_running}|#{@agent_c_done}|#{@agent_c_text}|#{@agent_c_dim}|#{@agent_c_border}|#{@agent_c_bg}' 2>/dev/null || true)"
   R=$'\033[0m'; [ -z "${NO_COLOR:-}" ] || R=''
   for i in 0 1 2 3 4 5; do
     fzfcolour n "${vals[i]:-}" || n="${defs[i]}"
@@ -59,6 +60,7 @@ palette() {
     elif [ "${n:0:1}" = '#' ]; then printf -v "${escs[i]}" '\033[38;2;%d;%d;%dm' "0x${n:1:2}" "0x${n:3:2}" "0x${n:5:2}"
     else printf -v "${escs[i]}" '\033[38;5;%sm' "$n"; fi
   done
+  fzfcolour bgc "${vals[6]:-}" || bgc=-1
 }
 
 # harnesses: the built-in harnesses' names, one per line.
