@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.16.0](https://github.com/willdah/tmux-agent-corral/compare/0.15.0...0.16.0) - 2026-10-26
+
+### Added
+
+- @agent_c_bg sets the panel's background
+
 ## [0.15.0](https://github.com/willdah/tmux-agent-corral/compare/0.14.0...0.15.0) - 2026-10-25
 
 ### Added
