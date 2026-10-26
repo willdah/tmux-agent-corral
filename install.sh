@@ -9,7 +9,7 @@
 # marked block to your tmux.conf and reloads a running tmux. Idempotent.
 #
 #   --remove        take the hooks, links and tmux.conf block out again
-#   --no-tmux-conf  leave tmux.conf alone; the README says what to add
+#   --no-tmux-conf  leave tmux.conf alone; docs/install.md says what to add
 set -euo pipefail
 
 # Piped in, there is no clone and so no common.sh yet: the bootstrap needs its
@@ -125,7 +125,7 @@ main() {
   if grep -qs 'agents/agents.tmux' "$conf"; then
     ok "$conf already sources agents.tmux"
   elif [ $edit_conf = 0 ]; then
-    warn "add to $conf:  source-file ~/.config/tmux/agents/agents.tmux  (then the status snippet in the README)"
+    warn "add to $conf:  source-file ~/.config/tmux/agents/agents.tmux  (then the status snippet in docs/install.md)"
   else
     # Appended last, so the -ag formats land after your own status-right.
     if [ -f "$conf" ]; then cp "$conf" "$conf.bak"; fi
