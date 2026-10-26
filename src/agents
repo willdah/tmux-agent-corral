@@ -67,7 +67,7 @@ age() {
 # too narrow for it, so state, title and age, which the sort runs on, always
 # show.
 widths() {
-  local fixed=21   # state, gaps and age: everything but title, project and agent
+  local fixed=11   # state, gaps and age: everything but title, project and agent
   local rest=$(( cols - fixed - 1 ))   # less the space before the project
   aw=7   # copilot, the longest built-in harness; a longer name gets cut
   if [ $(( rest - aw - 1 )) -ge 40 ]; then rest=$(( rest - aw - 1 )); else aw=0; fi
@@ -172,7 +172,7 @@ list() {
   [ "$pw" -gt 0 ] && { fit cell "$pw" PROJECT; where=" $cell"; }
   [ "$aw" -gt 0 ] && { fit cell "$aw" AGENT; who=" $cell"; }
   fit cell "$tw" SESSION
-  printf -- '-\t%s %-11s  %s%s%s   %4s%s\n' "$DIM" STATE "$cell" "$where" "$who" AGE "$R"
+  printf -- '-\t%s    %s%s%s   %4s%s\n' "$DIM" "$cell" "$where" "$who" AGE "$R"
 
   if [ -z "$rows" ]; then
     printf -- '-\t%s  no agents yet. Start claude, copilot or pi in any pane.%s\n' "$DIM" "$R"
@@ -190,7 +190,7 @@ list() {
   [ "$hw" -ge 5 ] || hw=5
   printf -v bars '%*s' "$hw" ''; bars="${bars// /─}"
   while IFS="$US" read -r rank since id st agent proj title sess; do
-    local glyph label col who='' ago where=''
+    local glyph col who='' ago where=''
     if [ "$rank" = H ]; then
       read -r -a ns <<<"$st"
       counts='' cl=0
@@ -205,17 +205,17 @@ list() {
       continue
     fi
     case "$st" in
-      input)   glyph='▲' label='needs you' col=$AMBER ;;
-      running) glyph='●' label='working'   col=$BLUE  ;;
-      done)    glyph='✓' label='finished'  col=$GREEN ;;
-      *)       glyph='○' label='idle'      col=$DIM   ;;
+      input)   glyph='▲' col=$AMBER ;;
+      running) glyph='●' col=$BLUE  ;;
+      done)    glyph='✓' col=$GREEN ;;
+      *)       glyph='○' col=$DIM   ;;
     esac
     [ "$pw" -gt 0 ] && { fit cell "$pw" "$proj"; where=" $DIM$cell$R"; }
     [ "$aw" -gt 0 ] && { fit cell "$aw" "$agent"; who=" $DIM$cell$R"; }
     fit cell "$tw" "$title"; age ago "$since"
-    printf '%s\t %s%s %-9s%s  %s%s%s%s%s   %s%4s%s\t%s\n' \
+    printf '%s\t %s%s%s  %s%s%s%s%s   %s%4s%s\t%s\n' \
       "$id" \
-      "$col" "$glyph" "$label" "$R" \
+      "$col" "$glyph" "$R" \
       "$TEXT" "$cell" "$R" \
       "$where" \
       "$who" \
