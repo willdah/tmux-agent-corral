@@ -76,10 +76,12 @@ case "${1:-}" in
       [ -z "$width" ] || size=(resize-window -t "$w" -x "$width" \;)
     fi
     [ -n "${width:-}" ] || width="$(tmux display -p -t "$w" '#{window_width}')"
-    [ "$width" -ge $(( WIDTH * 2 )) ] || { chain "$@"; exit 0; }
+    # Keep the width the user dragged the panel to, not the default.
+    pw="$(tmux display -p -t "$p" '#{pane_width}')"
+    [ "$width" -ge $(( pw * 2 )) ] || { chain "$@"; exit 0; }
     tmux set -w -t "$w" @agents_bare "$(tmux display -p -t "$w" '#{window_layout}')"
     first="$(tmux list-panes -t "$w" -F '#{pane_id}' | head -1)"
-    join=(${size[@]+"${size[@]}"} join-pane -d -fhb -l "$WIDTH" -s "$p" -t "$first")
+    join=(${size[@]+"${size[@]}"} join-pane -d -fhb -l "$pw" -s "$p" -t "$first")
     [ $# -eq 0 ] || join+=(\; "$@")
     [ ${#size[@]} -eq 0 ] || join+=(\; set -w -t "$w" -u window-size)
     status=0; tmux "${join[@]}" || status=$?

@@ -279,8 +279,10 @@ TMUX_PANE=$a "$here/src/agent-state" input </dev/null; sleep 1
 TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
 [ -n "$mine" ] || fail "panel has no refresh loop"
+t resize-pane -t "$p" -x 50
 for w in "$w2" "$s1" "$w1"; do "$here/src/agents-dock" follow "$w"; done
 [ "$(t display -p -t "$p" '#{window_id}')" = "$w1" ] || fail "dock did not follow back to work:1"
+[ "$(t display -p -t "$p" '#{pane_width}')" = 50 ] || fail "dock lost its resized width: $(t display -p -t "$p" '#{pane_width}')"
 [ "$(geo "$w2")" = "$g2" ] || fail "work:2 layout not restored: $(geo "$w2")"
 [ "$(geo "$s1")" = "$gs" ] || fail "side:1 layout not restored: $(geo "$s1")"
 
