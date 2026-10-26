@@ -15,6 +15,7 @@ A colour is `colourN` (0 to 255), `#rrggbb`, or one of the 16 names (`red`, `bri
 | `@agent_c_done` | `colour108` | `✓` finished |
 | `@agent_c_text`, `@agent_c_dim` | `colour250`, `colour247` | panel text; use about `colour236`/`colour240` on a light theme |
 | `@agent_c_border` | `colour238` | the panel's borders and group rules |
+| `@agent_c_bg` | the terminal's | the panel's background |
 
 `NO_COLOR=1` turns the panel's colours off.
 

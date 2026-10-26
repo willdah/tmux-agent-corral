@@ -82,7 +82,7 @@ bound() {
 bound @agents_key 'src/agents$' 'open the panel'
 bound @agents_key_dock 'agents-dock toggle' 'dock the panel'
 # Colours: tmux styles take no bare index, and the panel places only these.
-for o in input running done text dim border; do
+for o in input running done text dim border bg; do
   v="$(tmux show -gv "@agent_c_$o" 2>/dev/null)" || continue
   case "$v" in
     '') ;;   # the panel's default

@@ -175,7 +175,7 @@ step() {
     --border=rounded --border-label=' new agent ' --border-label-pos=3 \
     --info=hidden --pointer='▌' --gutter=' ' --prompt="$prompt" --header="$note" \
     --footer="$B${TEXT}↵$UB$DIM choose  $B$TEXT""esc$UB$DIM cancel$R" --footer-border=line \
-    --color="fg:$tc,bg:-1,fg+:255,bg+:236,hl:$bc,hl+:$bc" \
+    --color="fg:$tc,bg:$bgc,fg+:255,bg+:236,hl:$bc,hl+:$bc" \
     --color="border:$fc,label:$bc,footer-border:$fc,header:$dc" \
     --color="pointer:$bc,prompt:$bc,query:255" "$@"
 }
