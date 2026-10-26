@@ -5,7 +5,7 @@
 # Each agent's hooks tag its own pane through agent-state; the panel lists
 # every tagged pane in every session, waiting ones first. The status line and
 # window tabs are yours: this file only defines the formats to put in them
-# (see the README).
+# (see docs/install.md).
 #
 # Your settings can go before or after the source-file line: each default
 # here is set only if it isn't yet (set -goq). An empty value turns a thing
