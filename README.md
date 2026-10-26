@@ -8,7 +8,7 @@
 [![tmux 3.3+](https://img.shields.io/badge/tmux-3.3%2B-1bb91f.svg)](https://github.com/tmux/tmux)
 [![Shell](https://img.shields.io/badge/shell-bash-4eaa25.svg)](#requirements)
 
-[Features](#features) • [Install](#install) • [Use](#use) • [Configure](#configure) • [Other agents](#other-agents) • [FAQ](#faq)
+[Features](#features) • [Install](#install) • [Use](#use) • [Docs](#docs)
 
 </div>
 
@@ -28,7 +28,7 @@ Claude Code, Copilot CLI and Pi sessions, in any tmux session, window or pane, r
 - tmux 3.3+ (tested on 3.7)
 - [fzf](https://github.com/junegunn/fzf) 0.71+
 - bash, git, jq, curl
-- At least one of: [Claude Code](https://claude.com/claude-code), [Copilot CLI](https://github.com/github/copilot-cli), [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent). Any other harness can join; see [Other agents](#other-agents).
+- At least one of: [Claude Code](https://claude.com/claude-code), [Copilot CLI](https://github.com/github/copilot-cli), [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent). Any other harness can join; see [Scripting and other agents](docs/scripting.md).
 
 ## Install
 
@@ -47,48 +47,9 @@ Run the same command again to update.
 > [!IMPORTANT]
 > Restart any agents that are already running so they pick up the hooks.
 
-### What the installer does
+The installer sets up the hooks for each agent it finds and adds a block to your tmux.conf. Pass `--no-tmux-conf` to add it yourself. [Install details](docs/install.md) shows the block and lists every file the installer touches.
 
-The installer puts the panel at `~/.config/tmux/agents`. Piped in, it clones the repo there; run from a clone, it links that clone. If a dependency is missing, it stops and prints the command to install it. Then it sets up the agents it finds:
-
-- **Claude Code:** merges hooks into `~/.claude/settings.json`. Your other settings are left alone, a copy is kept as `settings.json.bak`, and re-running it doesn't add duplicates.
-- **Copilot CLI:** links `~/.copilot/hooks/agent-state.json`.
-- **Pi:** links the `~/.pi/agent/extensions/agent-state.ts` extension.
-
-> [!NOTE]
-> The `~/.config/tmux/agents` path is fixed: the hooks and key bindings call it.
-
-Last, it appends this block to `~/.tmux.conf` (or `~/.config/tmux/tmux.conf` if that's the one you use; the previous version is saved as `.bak`) and loads it into a running tmux:
-
-```tmux
-# >>> tmux-agent-corral >>>
-source-file ~/.config/tmux/agents/agents.tmux
-set -ag status-right "#{E:@agents_status}"
-setw -ag window-status-format         "#{E:@agent_tab}"
-setw -ag window-status-current-format "#{E:@agent_tab}"
-# <<< tmux-agent-corral <<<
-```
-
-The `-a` appends to whatever you have. If the marks land in the wrong place, put `#{E:@agents_status}` and `#{E:@agent_tab}` where you want them in your own formats.
-
-> [!TIP]
-> To manage those lines yourself, pass `--no-tmux-conf` (with curl: `| bash -s -- --no-tmux-conf`). A config that already sources `agents.tmux` is left alone either way.
-
-### Check the setup
-
-```sh
-~/.config/tmux/agents/src/doctor
-```
-
-It checks the dependencies, each agent's hooks, that tmux has `agents.tmux` loaded and the marks in its status line and tabs, the notifier, and your settings (keys that didn't bind or clash, colours it can't use, launch profiles not on PATH), and names any agent running in tmux that reports nothing. It only reads, and says what to fix.
-
-### Uninstall
-
-```sh
-~/.config/tmux/agents/install.sh --remove
-```
-
-It takes out the hooks, the links and the tmux.conf block.
+Check the setup with `~/.config/tmux/agents/src/doctor`. Remove everything with `~/.config/tmux/agents/install.sh --remove`.
 
 ## Use
 
@@ -97,7 +58,7 @@ It takes out the hooks, the links and the tmux.conf block.
 | `prefix + a` | agents panel as a popup; `↵` jumps to the agent and closes |
 | `prefix + A` | toggle the docked panel: a full-height pane on the left that follows you to every window and session and keeps focus; `↵` shows the agent, the cursor stays in the panel |
 
-`@agents_key` and `@agents_key_dock` change these two; see the [FAQ](#faq).
+`@agents_key` and `@agents_key_dock` change these two; see the [FAQ](docs/faq.md).
 
 Inside the panel:
 
@@ -109,7 +70,7 @@ Inside the panel:
 | `n` | give it a name, starting from the one it shows (empty resets to the agent's own title) |
 | `x` | interrupt: sends Escape (C-c to Copilot), and only to an agent that is working |
 | `d` | kill its pane, once you confirm with ↵ (esc cancels); the last pane takes its window, the last window its session |
-| `c` | start a new agent in a window of its own: pick a folder, a worktree if it's a git repo, the session to add it to, the agent, and a first prompt or none (see [New agents](#new-agents)); not in the docked panel's key hints, but works there |
+| `c` | start a new agent in a window of its own: pick a folder, a worktree if it's a git repo, the session to add it to, the agent, and a first prompt or none (see [Start a new agent](docs/new-agents.md)); not in the docked panel's key hints, but works there |
 | `g` | group by tmux session (the session with the most urgent agent first, each heading counting its agents by state); not in the docked panel's key hints, but works there |
 | `p` | toggle the live preview |
 | `r` | refresh |
@@ -122,182 +83,14 @@ The panel refreshes the moment an agent changes state, and every 10 seconds to k
 
 The docked panel moves into whichever window you switch to. Each window's layout is saved when the panel arrives and restored when it leaves, so your layouts never drift. It stays put in a zoomed window, or one narrower than 128 columns, and catches up on the next switch.
 
-### New agents
-
-`c` asks five things, one at a time, in the panel:
-
-1. **Where:** the folders your running agents work in (a repo by its main checkout), the subfolders of each folder in `@agents_roots`, or a path you type, starting with `/`, `~` or `.`. It doesn't have to be a repo.
-2. **Worktree**, in a git repo only: the checkout itself (marked `(the checkout)`), one of its worktrees, or `+ new worktree`, which asks for a branch name. The new worktree goes at `<repo>-worktrees/<branch>` (with `/` as `-`), on a new branch made from origin's default branch (or `HEAD` without one), or on that branch if it exists. A worktree has only tracked files, so install dependencies there before building.
-3. **Session:** the tmux session to add the agent's window to: the one you're in (first), any other, or `+ new session`.
-4. **Agent:** a launch profile (see [Launch profiles](#launch-profiles)) whose command is on PATH, by name, harness and command, the default first; skipped when there's only one.
-5. **Prompt:** a first prompt to start it on, or ↵ to start it without one.
-
-The agent starts in a new window named after its folder (a new session is named after it too), and you land on it (the docked panel follows). `esc` at any step goes back to the panel.
-
-## Configure
-
-Set any of these in your tmux.conf, before or after the `source-file` line: `agents.tmux` only fills in what you haven't set. A colour is `colourN` (0 to 255), `#rrggbb`, or one of the 16 names (`red`, `brightred`, …). A bare index from before 0.15.0 (`214`) gets its `colour` prefix when it's set before the `source-file` line; after it, write `colour214`.
-
-| Option | Default | Colours |
-|---|---|---|
-| `@agent_c_input` | `colour214` | `▲` needs you |
-| `@agent_c_running` | `colour110` | `●` working |
-| `@agent_c_done` | `colour108` | `✓` finished |
-| `@agent_c_text`, `@agent_c_dim` | `colour250`, `colour247` | panel text; use about `colour236`/`colour240` on a light theme |
-| `@agent_c_border` | `colour238` | the panel's borders and group rules |
-| `@agent_c_bg` | the terminal's | the panel's background |
-
-`set -g @agents_roots "~/Projects ~/work"` lists those folders' subfolders as places to start an agent with `c`.
-
-`set -g @agents_group on` starts the panel grouped by tmux session (`g` toggles it).
-
-`@agents_notify` says how you hear that an agent needs you or finished while no client is looking at its pane: `tmux` (default: a message in every client looking elsewhere), `os` (a desktop notification, through `osascript` or `notify-send`), `off`, or a command of your own, run with the message (`▲ Fix login needs you`) as its one argument.
-
-`NO_COLOR=1` turns the panel's colours off.
-
-### Launch profiles
-
-What `c` offers to start is a list of profiles, one option each: `@agents_launch_<name>` holds a command, typed into the new window's shell as you'd type it. `claude`, `copilot` and `pi` are there by default; add your own, wrappers included:
-
-```tmux
-set -g @agents_launch_yolo    "claude --dangerously-skip-permissions"
-set -g @agents_launch_hr      "headroom wrap claude"
-set -g @agents_launch_default hr   # listed first, and what agents-new takes without --agent
-set -g @agents_launch_pi      ""   # empty hides one
-```
-
-A profile's harness is the first word of its command, before any flag, that names one (`headroom wrap claude` is Claude; so is `claude --model opus`, whose flags and arguments never count), which decides how its first prompt is passed (`-i` for Copilot, else `--`). A command of no known harness still starts, with `-- PROMPT` after it. The list shows only profiles whose first word is on PATH, the default first, then the rest of its harness's, then the other harnesses', then those of none. Without `@agents_launch_default`, `claude` leads.
-
-The hooks are registered at index `[40]` (`session-window-changed`, `client-session-changed`, `pane-focus-in`), so they sit alongside your own. `agents.tmux` also turns on `focus-events`.
-
-## Other agents
-
-The protocol is one script. `agent-state <input|running|done|idle|clear> [harness]` tags the pane it runs in (`$TMUX_PANE`) with `@agent_state`, `@agent_since` and `@agent`. The state lives in pane options, so it disappears with the pane. Call it from any harness's hooks or a wrapper:
-
-```sh
-~/.config/tmux/agents/src/agent-state running codex
-```
-
-The built-in ones live in `harnesses/<name>/`: an `adapter.sh` that says how to pass a first prompt and which key interrupts it, next to the hook it installs (`copilot/hooks.json`, `pi/extension.ts`, and `claude/install`, which merges Claude's into `settings.json`). A new folder there is a new built-in harness.
-
-### Scripting
-
-Two more verbs drive agents from a script, a hook, or another agent:
-
-```sh
-agent-state wait PANE [STATE...] [--timeout SECONDS]   # block until PANE is in one of the states (default: input done)
-agent-state prompt PANE TEXT                           # type TEXT into the agent in PANE and press Enter
-```
-
-`wait` exits 0 when the state is reached (`clear` means the agent has ended), 1 on the timeout, when the pane is gone, or when the agent ends first. `prompt` exits 1 when `PANE` is not an agent or is waiting on you, so a prompt never lands in a permission dialog; answer it first (`y` in the panel, or `tmux send-keys -t PANE Enter`). It marks the agent working as it sends, so a `wait` right after it waits for the new turn, not the last one. Together they hand work to a peer and wait for it:
-
-```sh
-agent-state prompt %7 "run the tests and fix what breaks" && agent-state wait %7
-```
-
-`agents-new` starts one without asking, and prints its pane, so a script can start a peer and hand it work:
-
-```sh
-agents-new --dir DIR [--branch BRANCH] [--session SESSION] [--agent AGENT] [--prompt TEXT]
-p=$(agents-new --dir ~/src/app --branch fix/flaky --agent claude --prompt "find and fix the flaky test") && agent-state wait "$p"
-```
-
-`--branch` makes or reuses a worktree as `c` does. `--session` adds the window to that session, making it if there is none, or `--session new` gives it a session of its own; without it the window joins the caller's session (outside tmux, a new one). `AGENT` names a launch profile, else is a command of its own (`--agent "claude --model opus"`); without it, the default profile. It's typed into the session's shell with the prompt as its last argument (Copilot's with `-i`). `agents-new --profiles` lists the profiles `c` offers, in its order: name, harness, command, tab-separated.
-
-To find a pane, `agents --rows` prints one tab-separated record per agent in the panel's order: rank (0 needs you, 1 finished, 2 idle, 3 working), since (epoch), pane id, state, harness, project, name, session. With grouping on, a heading record leads each session: rank `H`, its counts by rank in the state field, `-<session>` as the id. Two housekeeping verbs round out the record: `agent-state seen PANE` dims a finished agent to idle (the focus hook and the panel's jump call it), and `agent-state sweep` clears every pane whose agent died without saying so (the panel runs it on open and every 10s).
-
-```sh
-agents --rows | awk -F'\t' '$4 == "input" { print $3 }'   # every pane waiting on you
-```
-
-## Known limits
-
-> [!WARNING]
-> - Interrupting Claude with Escape in its own pane fires no hook, so the pane keeps showing `●` until your next prompt. `x` in the panel marks it idle as it interrupts.
-> - Pi has no permission prompts of its own, so its `▲` only shows while an extension asks you something.
-> - With two terminals attached, the docked panel follows whichever one switched windows last.
-
-## FAQ
-
-<details>
-<summary><b>An agent isn't showing up.</b></summary>
-
-Run `~/.config/tmux/agents/src/doctor`: it names agents that run but report nothing, and hooks that are missing. Agents that were already running when you installed need a restart to pick up the hooks. The agent also has to run inside a tmux pane: `agent-state` reads `$TMUX_PANE`, and without it the script does nothing.
-
-</details>
-
-<details>
-<summary><b>Can a broken hook break my agent?</b></summary>
-
-No. `agent-state` always exits 0 and swallows its own errors, so the worst that can happen is a missing mark.
-
-</details>
-
-<details>
-<summary><b>A pane is stuck on <code>●</code> (or anything else).</b></summary>
-
-Usually that's an Escape typed into Claude's pane (see [Known limits](#known-limits)); your next prompt fixes it, and interrupting with `x` from the panel avoids it. To clear it by hand, run `~/.config/tmux/agents/src/agent-state clear` in that pane. Closing the pane also clears it, because the state lives in the pane.
-
-</details>
-
-<details>
-<summary><b>Does it work over SSH?</b></summary>
-
-It works when tmux runs on the same machine as the agent. If you SSH out of a tmux pane and start an agent on the remote box, the remote shell has no `$TMUX_PANE` and nothing gets tracked. Run tmux on the remote side instead.
-
-</details>
-
-<details>
-<summary><b>Is something running in the background all the time?</b></summary>
-
-No. The status line and tabs are plain tmux formats that read pane options. The panel refreshes only while it's open (on each state change, and every 10 seconds), and the dock hooks do nothing while it's undocked.
-
-</details>
-
-<details>
-<summary><b>Why does it need curl? Does it phone home?</b></summary>
-
-No. curl only talks to fzf on `localhost` to refresh the open panel. Nothing leaves your machine.
-
-</details>
-
-<details>
-<summary><b>What does <code>y</code> actually approve?</b></summary>
-
-It sends one Enter, so you get whatever option the agent's prompt has highlighted. It only does that when the agent is waiting (`▲`), so a stray `y` can't submit a half-typed prompt to a working agent.
-
-</details>
-
-<details>
-<summary><b>I already use <code>prefix + a</code> / <code>prefix + A</code>.</b></summary>
-
-Pick others **before** the `source-file` line (the keys are bound as it's read); an empty one binds nothing:
-
-```tmux
-set -g @agents_key      g
-set -g @agents_key_dock G
-source-file ~/.config/tmux/agents/agents.tmux
-```
-
-</details>
-
-<details>
-<summary><b>Was this built by AI?</b></summary>
-
-Yes it was, but this response was artisanally crafted by a human with soft hands.
-
-</details>
-
-<details>
-<summary><b>Is it coral, corral, or Carl?</b></summary>
-
-It's corral, like the _golden_ one. Not like the reef or Rick Grimes shouting at his son during a zombie apocalypse.
-
-</details>
-
-## Development
-
-```sh
-scripts/smoke-test   # runs everything on a throwaway tmux server; prints ok
-vhs demo/demo.tape   # re-records the README GIF to demo/demo.gif (staged agents, needs vhs)
-```
+## Docs
+
+| Page | What's in it |
+|---|---|
+| [Install details](docs/install.md) | What the installer changes, the tmux.conf block, `doctor`, uninstall |
+| [Start a new agent](docs/new-agents.md) | The five steps `c` asks, and where worktrees go |
+| [Configuration](docs/configuration.md) | Colours, folders for `c`, grouping, notifications, launch profiles, tmux hooks |
+| [Scripting and other agents](docs/scripting.md) | The `agent-state` protocol, `wait`, `prompt`, `agents-new`, `agents --rows` |
+| [Known limits](docs/known-limits.md) | What the hooks can't see |
+| [FAQ](docs/faq.md) | Missing agents, stuck marks, SSH, rebinding the keys |
+| [Development](docs/development.md) | Smoke test and re-recording the demo GIF |
