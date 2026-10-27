@@ -76,12 +76,9 @@ palette
 B=$'\033[1m' UB=$'\033[22m'   # bold carries the footer's keys; NO_COLOR keeps it
 # A shine's centre and its falloff, over working blue.
 LIT=$'\033[38;5;255m' GLOW=$'\033[38;5;189m' HALO=$'\033[38;5;153m'
-# The title's sweep, its leading edge first: mist, sky, cobalt and sage
-# (colorhunt.co/palette/2936814274d995ccddd0e7e6, sage #88BDA4 for its navy),
-# settling sky.
-SWEEP=($'\033[38;2;208;231;230m' $'\033[38;2;149;204;221m' $'\033[38;2;66;116;217m' $'\033[38;2;136;189;164m')
-PEEL=$'\033[38;2;149;204;221m'
-[ -z "${NO_COLOR:-}" ] || { LIT='' GLOW='' HALO='' PEEL=''; SWEEP=('' '' '' ''); }
+# The title's gold, and the light gold of the shine that sweeps it.
+GOLD=$'\033[38;2;232;196;104m' GOLD1=$'\033[38;2;255;246;214m' GOLD2=$'\033[38;2;246;222;150m'
+[ -z "${NO_COLOR:-}" ] || LIT='' GLOW='' HALO='' GOLD='' GOLD1='' GOLD2=''
 
 # The frame the panel is on; --list, outside it, has none and draws still.
 frame=0
@@ -557,8 +554,8 @@ key() {
 }
 
 # The summary's title shows whether the panel has focus: dim without it. On
-# gaining it, a band of SWEEP's colours runs across it left to right, two
-# letters a frame, leaving it sky behind. The focus
+# gaining it, a light gold shine sweeps the title left to right, two letters
+# a frame, leaving "agent-" bright and "corral" gold behind it. The focus
 # hooks in agents.tmux ping the docked panel (--ping), which redraws the
 # title from the real focus, so a lost ping or a quick out-and-back (↵ in the
 # dock) leaves it right. The popup is always in front. $AGENTS_STATE/lit
@@ -569,17 +566,19 @@ label() {
     [ -z "$s" ] || rm -f "$s/lit" "$s/shimmer"
     printf ' %s%s%s ' "$DIM" "$t" "$R"; return
   fi
-  if [ -n "$s" ] && [ -n "$PEEL" ]; then
+  if [ -n "$s" ] && [ -n "$GOLD" ]; then
     [ -f "$s/lit" ] || { : >"$s/lit"; echo "$frame" >"$s/shimmer"; }
     if read -r start 2>/dev/null <"$s/shimmer"; then
       p=$(( (frame - start) * 2 - 2 ))
-      [ "$p" -le $(( ${#t} + 3 )) ] || { rm -f "$s/shimmer"; p=99; }
+      [ "$p" -le $(( ${#t} + 1 )) ] || { rm -f "$s/shimmer"; p=99; }
     fi
   fi
   for (( i = 0; i < ${#t}; i++ )); do
     d=$(( i - p ))
-    if [ "$p" = 99 ] || [ "$d" -lt -2 ]; then c=$PEEL
-    elif [ "$d" -le 1 ]; then c=${SWEEP[1 - d]}
+    if [ "$p" = 99 ] || [ "$d" -lt -1 ]; then
+      if [ "$i" -lt 6 ]; then c=$LIT; else c=$GOLD; fi
+    elif [ "$d" = 0 ]; then c=$GOLD1
+    elif [ "$d" -le 1 ]; then c=$GOLD2
     else c=$DIM; fi
     out+="$c${t:i:1}"
   done
