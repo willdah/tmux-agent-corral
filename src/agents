@@ -64,7 +64,11 @@ tick() {
   if [ -f "$s/label" ] || [ -f "$s/shimmer" ]; then rm -f "$s/label"; act+="+transform-header-label($self --label)"; fi
   if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ $(( nin + nrun )) -gt 0 ]; then seen=animating; fi
   if [ "$gen" != "$seen" ]; then echo "$gen" >"$s/seen"; act+="+bg-transform-header($self --header)"; fi
-  if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ]; then act+="+reload-sync($self --frame)"; fi
+  # The rows hold still for a second after each key: a reload under a key
+  # press loses it or moves the cursor.
+  if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ] && [ "${FZF_IDLE_TIME_MS:-1000}" -ge 1000 ]; then
+    act+="+reload-sync($self --frame)"
+  fi
   printf '%s' "${act#+}"
 }
 [ "${1:-}" = --tick ] && { tick; exit 0; }
