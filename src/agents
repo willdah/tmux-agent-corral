@@ -76,9 +76,10 @@ palette
 B=$'\033[1m' UB=$'\033[22m'   # bold carries the footer's keys; NO_COLOR keeps it
 # A shine's centre and its falloff, over working blue.
 LIT=$'\033[38;5;255m' GLOW=$'\033[38;5;189m' HALO=$'\033[38;5;153m'
-# The title's sweep, its leading edge first: mist, sky, cobalt and navy
-# (colorhunt.co/palette/2936814274d995ccddd0e7e6), settling sky.
-SWEEP=($'\033[38;2;208;231;230m' $'\033[38;2;149;204;221m' $'\033[38;2;66;116;217m' $'\033[38;2;41;54;129m')
+# The title's sweep, its leading edge first: mist, sky, cobalt and sage
+# (colorhunt.co/palette/2936814274d995ccddd0e7e6, sage #88BDA4 for its navy),
+# settling sky.
+SWEEP=($'\033[38;2;208;231;230m' $'\033[38;2;149;204;221m' $'\033[38;2;66;116;217m' $'\033[38;2;136;189;164m')
 PEEL=$'\033[38;2;149;204;221m'
 [ -z "${NO_COLOR:-}" ] || { LIT='' GLOW='' HALO='' PEEL=''; SWEEP=('' '' '' ''); }
 
