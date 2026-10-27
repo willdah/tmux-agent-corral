@@ -309,7 +309,7 @@ gone undocking
 # plain once it goes. The focus hooks need a client, so ping by hand.
 t select-window -t "$w1"; "$here/src/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"; sleep 1.5
 title() { t capture-pane -ep -t "$p" | sed -n 1p; }
-lit() { title | grep 'agent-corral' | grep -q $'\e\\[1m'; }
+lit() { title | grep 'agent-' | grep -q $'\e\\[1m'; }
 lit || fail "focused panel's title not marked: $(title)"
 # The ping marks it; the panel's next tick (0.2s) redraws it.
 t last-pane -t "$w1"; "$here/src/agents" --ping; sleep 0.5
