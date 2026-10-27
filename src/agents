@@ -278,7 +278,7 @@ list() {
   # The rule keeps two bars; the name is cut with … to fit, and the counts go
   # when even that won't. The floor keeps every cut non-negative on an
   # absurdly narrow panel.
-  local hw=$rw bars s n ns i counts cl gl=(▲ ✓ ○ ●) gc=("$AMBER" "$GREEN" "$DIM" "$BLUE") ri=0
+  local hw=$rw bars s n ns i counts cl gl=(▲ ✓ zᶻ ●) gc=("$AMBER" "$GREEN" "$DIM" "$BLUE") ri=0
   [ "$hw" -le "$cols" ] || hw=$cols
   hw=$(( hw - 1 ))
   [ "$hw" -ge 5 ] || hw=5
@@ -290,7 +290,7 @@ list() {
       counts='' cl=0
       for i in 0 1 2 3; do
         [ "${ns[i]}" -gt 0 ] || continue
-        counts+=" ${gc[i]}${gl[i]}${ns[i]}$R"; cl=$(( cl + 2 + ${#ns[i]} ))
+        counts+=" ${gc[i]}${gl[i]}${ns[i]}$R"; cl=$(( cl + 1 + ${#gl[i]} + ${#ns[i]} ))
       done
       n=$(( hw - cl - 3 ))
       [ "$n" -ge 2 ] || { counts='' cl=0 n=$(( hw - 3 )); }
@@ -302,7 +302,7 @@ list() {
       input)   glyph='▲ ' col=$AMBER ;;
       running) glyph='● ' col=$BLUE  ;;
       done)    glyph='✓ ' col=$GREEN ;;
-      *)       glyph='○ ' col=$DIM   ;;
+      *)       glyph='zᶻ' col=$DIM   ;;
     esac
     [ "$pw" -gt 0 ] && { fit cell "$pw" "$proj"; where=" $DIM$cell$R"; }
     [ "$aw" -gt 0 ] && { fit cell "$aw" "$agent"; who=" $DIM$cell$R"; }
@@ -352,7 +352,7 @@ header() {
   [ "$nin" -gt 0 ] && { ic=$PULSE; age ago "$old"; }
   [ "$nrun" -gt 0 ] && rc=$BLUE
   [ "$ndone" -gt 0 ] && dc=$GREEN
-  printf -v line ' %s▲ %s%s%s need you   %s● %s%s%s working   %s✓ %s%s%s done   %s○ %s idle%s' \
+  printf -v line ' %s▲ %s%s%s need you   %s● %s%s%s working   %s✓ %s%s%s done   %szᶻ %s idle%s' \
     "$ic" "$B" "$nin" "$UB" "$rc" "$B" "$nrun" "$UB" "$dc" "$B" "$ndone" "$UB" "$DIM" "$nidle" "$R"
   [ -z "$ago" ] || line+="   ${DIM}oldest wait ${AMBER}${ago}${R}"
   vis="${line//$e\[+([0-9;])m/}"
@@ -373,10 +373,10 @@ header() {
   [ "$bw" -ge 4 ] || bw=4
   for k in input running done idle; do
     case $k in
-      (input)   cells=$nin   lbl='need you' gl='▲' c=$ic ;;
-      (running) cells=$nrun  lbl='working'  gl='●' c=$rc ;;
-      (done)    cells=$ndone lbl='done'     gl='✓' c=$dc ;;
-      (*)       cells=$nidle lbl='idle'     gl='○' c=$DIM ;;
+      (input)   cells=$nin   lbl='need you' gl='▲ ' c=$ic ;;
+      (running) cells=$nrun  lbl='working'  gl='● ' c=$rc ;;
+      (done)    cells=$ndone lbl='done'     gl='✓ ' c=$dc ;;
+      (*)       cells=$nidle lbl='idle'     gl='zᶻ' c=$DIM ;;
     esac
     tail=''; [ "$k" = input ] && [ -n "$ago" ] && tail=" ${AMBER}${ago}${R}"
     if [ "$cells" -gt 0 ]; then
