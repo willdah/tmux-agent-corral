@@ -7,7 +7,7 @@
 AGENTS_HOME="$HOME/.config/tmux/agents"
 
 # The oldest fzf the panel runs on.
-FZF_MIN=0.71
+FZF_MIN=0.73
 
 # One folder per built-in harness: an adapter.sh, and the hook it installs.
 HARNESSES="${BASH_SOURCE[0]%/*}/../harnesses"
@@ -45,13 +45,15 @@ fzfcolour() {
 
 # palette: the panel's colours, from @agent_c_* so the panel and the status
 # line can't drift apart; one fzfcolour can't place falls back to its
-# default. Sets AMBER BLUE GREEN TEXT DIM FAINT to the escapes that turn
+# default. The panel hands its frames what tmux said in $AGENTS_PAL, so they
+# don't ask again. Sets AMBER BLUE GREEN TEXT DIM FAINT to the escapes that turn
 # each on (empty under NO_COLOR) and R to the reset, and ac bc gc tc dc fc to
 # the same colours for fzf's --color, and bgc to @agent_c_bg's (-1, the
 # terminal's own, when unset).
 palette() {
   local i n vals defs=(214 110 108 250 247 238) fzs=(ac bc gc tc dc fc) escs=(AMBER BLUE GREEN TEXT DIM FAINT)
-  IFS='|' read -r -a vals <<<"$(tmux display -p '#{@agent_c_input}|#{@agent_c_running}|#{@agent_c_done}|#{@agent_c_text}|#{@agent_c_dim}|#{@agent_c_border}|#{@agent_c_bg}' 2>/dev/null || true)"
+  pal="${AGENTS_PAL:-$(tmux display -p '#{@agent_c_input}|#{@agent_c_running}|#{@agent_c_done}|#{@agent_c_text}|#{@agent_c_dim}|#{@agent_c_border}|#{@agent_c_bg}' 2>/dev/null || true)}"
+  IFS='|' read -r -a vals <<<"$pal"
   R=$'\033[0m'; [ -z "${NO_COLOR:-}" ] || R=''
   for i in 0 1 2 3 4 5; do
     fzfcolour n "${vals[i]:-}" || n="${defs[i]}"

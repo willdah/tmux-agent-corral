@@ -26,7 +26,7 @@ Claude Code, Copilot CLI and Pi sessions, in any tmux session, window or pane, r
 ## Requirements
 
 - tmux 3.3+ (tested on 3.7)
-- [fzf](https://github.com/junegunn/fzf) 0.71+
+- [fzf](https://github.com/junegunn/fzf) 0.73+
 - bash, git, jq, curl
 - At least one of: [Claude Code](https://claude.com/claude-code), [Copilot CLI](https://github.com/github/copilot-cli), [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent). Any other harness can join; see [Scripting and other agents](docs/scripting.md).
 
@@ -65,6 +65,7 @@ Inside the panel:
 | Key | Action |
 |-----|--------|
 | `↵` | jump to the agent (the popup closes; the docked panel keeps focus) |
+| `/` | filter the list; the action keys type while it's open, and `//` or `Esc` closes it |
 | `y` | approve: sends Enter, and only to an agent that is waiting |
 | `m` | type a message to it, right in the panel (↵ sends, esc cancels) |
 | `n` | give it a name, starting from the one it shows (empty resets to the agent's own title) |
@@ -72,10 +73,10 @@ Inside the panel:
 | `d` | kill its pane, once you confirm with ↵ (esc cancels); the last pane takes its window, the last window its session |
 | `c` | start a new agent in a window of its own: pick a folder, a worktree if it's a git repo, the session to add it to, the agent, and a first prompt or none (see [Start a new agent](docs/new-agents.md)); not in the docked panel's key hints, but works there |
 | `g` | group by tmux session (the session with the most urgent agent first, each heading counting its agents by state); not in the docked panel's key hints, but works there |
-| `p` | toggle the live preview |
+| `p` | toggle the live preview of the agent's screen |
 | `r` | refresh |
 | `j` / `k` | move down / up |
-| `q` / `Esc` | close |
+| `q` / `Esc` | close (`Esc` closes an open filter or field first) |
 
 To move one of the letter keys, name its action: `set -g @agents_panel_key_interrupt X` (the actions are `approve`, `message`, `rename`, `interrupt`, `kill`, `new`, `group`, `preview`, `close`, `reload`, `down` and `up`). The footer follows. An empty value unbinds one. `↵`, `Esc` and the arrows stay as they are.
 
