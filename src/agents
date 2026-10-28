@@ -559,13 +559,15 @@ key() {
 
 # The summary's title shows whether the panel has focus: dim without it. On
 # gaining it, a light gold shine sweeps the title left to right, three letters
-# a frame, leaving "agent-" bright and "corral" gold behind it. The focus
+# a frame, leaving "agent-" bright and "corral" gold behind it, then back to
+# the left and right again (SHINE: its centre, frame by frame). The focus
 # hooks in agents.tmux ping the docked panel (--ping), which redraws the
 # title from the real focus, so a lost ping or a quick out-and-back (↵ in the
 # dock) leaves it right. The popup is always in front. $AGENTS_STATE/lit
 # marks a sweep played for this focus, shimmer the frame it began on.
+SHINE=(-1 2 5 8 11 8 5 2 -1 2 5 8 11)
 label() {
-  local s="${AGENTS_STATE:-}" t='agent-corral' i d c out='' p=99 start
+  local s="${AGENTS_STATE:-}" t='agent-corral' i d c k=0 out='' p=99 start
   if [ -z "${AGENTS_SIDE:-}" ] && [ "$(tmux display -p -t "$TMUX_PANE" '#{&&:#{pane_active},#{window_active}}')" != 1 ]; then
     [ -z "$s" ] || rm -f "$s/lit" "$s/shimmer"
     printf ' %s%s%s ' "$DIM" "$t" "$R"; return
@@ -573,13 +575,13 @@ label() {
   if [ -n "$s" ] && [ -n "$GOLD" ]; then
     [ -f "$s/lit" ] || { : >"$s/lit"; echo "$frame" >"$s/shimmer"; }
     if read -r start 2>/dev/null <"$s/shimmer"; then
-      p=$(( (frame - start) * 3 - 1 ))
-      [ "$p" -le $(( ${#t} + 1 )) ] || { rm -f "$s/shimmer"; p=99; }
+      k=$(( frame - start ))
+      if [ "$k" -lt ${#SHINE[@]} ]; then p=${SHINE[k]}; else rm -f "$s/shimmer"; fi
     fi
   fi
   for (( i = 0; i < ${#t}; i++ )); do
     d=$(( i - p ))
-    if [ "$p" = 99 ] || [ "$d" -lt -1 ]; then
+    if [ "$p" = 99 ] || [ "$d" -lt -1 ] || { [ "$k" -gt 4 ] && [ "$d" -gt 1 ]; }; then
       if [ "$i" -lt 6 ]; then c=$LIT; else c=$GOLD; fi
     elif [ "$d" = 0 ]; then c=$GOLD1
     elif [ "$d" -le 1 ]; then c=$GOLD2
