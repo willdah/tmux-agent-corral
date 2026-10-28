@@ -284,9 +284,7 @@ n="$(t capture-pane -p -t "$p" | grep -c '▲')"
 TMUX_PANE=$a "$here/src/agent-state" input </dev/null
 # Polled, not slept: a slow CI runner can take more than a second to redraw.
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(t capture-pane -p -t "$p" | grep -c '▲')" -gt "$n" ] && break; sleep 0.5; done
-[ "$(t capture-pane -p -t "$p" | grep -c '▲')" -gt "$n" ] || fail "panel did not reload on a state change (▲ $n before):
-$(t capture-pane -p -t "$p")
-states: $(t list-panes -a -F '#{pane_id}=#{@agent_state}' | tr '\n' ' ')"
+[ "$(t capture-pane -p -t "$p" | grep -c '▲')" -gt "$n" ] || fail "panel did not reload on a state change"
 TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
 [ -n "$mine" ] || fail "panel has no refresh loop"
@@ -298,7 +296,8 @@ for w in "$w2" "$s1" "$w1"; do "$here/src/agents-dock" follow "$w"; done
 [ "$(geo "$s1")" = "$gs" ] || fail "side:1 layout not restored: $(geo "$s1")"
 
 # q after a reload closes it (fzf hung on --track with an empty row id).
-sleep 1; t wait-for -S agents; sleep 1; t send-keys -t "$p" q; sleep 1
+sleep 1; t wait-for -S agents; sleep 1; t send-keys -t "$p" q
+for _ in 1 2 3 4 5 6 7 8 9 10; do t list-panes -a -F '#{pane_id}' | grep -qx -- "$p" || break; sleep 0.5; done
 t list-panes -a -F '#{pane_id}' | grep -qx -- "$p" && fail "q did not close the docked panel"
 [ "$(geo "$w1")" = "$g1" ] || fail "work:1 layout not restored after q: $(geo "$w1")"
 gone() { for w in $mine; do kill -0 "$w" 2>/dev/null && fail "$1 left refresh loop $w running"; done; return 0; }
