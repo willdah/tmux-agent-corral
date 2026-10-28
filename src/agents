@@ -558,7 +558,7 @@ key() {
 }
 
 # The summary's title shows whether the panel has focus: dim without it. On
-# gaining it, a light gold shine sweeps the title left to right, two letters
+# gaining it, a light gold shine sweeps the title left to right, three letters
 # a frame, leaving "agent-" bright and "corral" gold behind it. The focus
 # hooks in agents.tmux ping the docked panel (--ping), which redraws the
 # title from the real focus, so a lost ping or a quick out-and-back (↵ in the
@@ -573,7 +573,7 @@ label() {
   if [ -n "$s" ] && [ -n "$GOLD" ]; then
     [ -f "$s/lit" ] || { : >"$s/lit"; echo "$frame" >"$s/shimmer"; }
     if read -r start 2>/dev/null <"$s/shimmer"; then
-      p=$(( (frame - start) * 2 - 2 ))
+      p=$(( (frame - start) * 3 - 1 ))
       [ "$p" -le $(( ${#t} + 1 )) ] || { rm -f "$s/shimmer"; p=99; }
     fi
   fi
