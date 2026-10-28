@@ -28,7 +28,7 @@
 # session, each in the usual order. The session holding the most urgent row
 # comes first (ties by name), so what needs you still tops the panel. A
 # heading names the session and counts its agents by state. Its id is
-# -<session>: unique for --track, and no pane, so actions skip it, all but n,
+# -<session>: unique for tracking, and no pane, so actions skip it, all but n,
 # which renames the session.
 #
 # The panel is three boxes: a summary of the agents by state, the filter
@@ -55,8 +55,9 @@ shopt -s extglob
 # second (faster starves fzf of the keys you press), so it answers here,
 # before the palette below costs it a tmux call.
 tick() {
-  local s="$AGENTS_STATE" frame=0 gen nin nrun seen='' act=''
+  local s="$AGENTS_STATE" frame=0 gen nin nrun seen='' act='' listing=-99
   read -r frame 2>/dev/null <"$s/frame" || true
+  read -r listing 2>/dev/null <"$s/listing" || true
   echo $(( frame + 1 )) >"$s/frame"
   read -r gen nin nrun _ 2>/dev/null <"$s/sum" || gen=0 nin=0 nrun=0
   read -r seen 2>/dev/null <"$s/seen" || true
@@ -65,9 +66,13 @@ tick() {
   if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nin" -gt 0 ]; then seen=animating; fi   # only needs you breathes
   if [ "$gen" != "$seen" ]; then echo "$gen" >"$s/seen"; act+="+bg-transform-header($self --header)"; fi
   # The rows hold still for a second after each key: a reload under a key
-  # press loses it or moves the cursor.
-  if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ] && [ "${FZF_IDLE_TIME_MS:-1000}" -ge 1000 ]; then
-    act+="+reload-sync($self --frame)"
+  # press loses it or moves the cursor. A frame keeps the rows in place, so
+  # it tracks none: fzf takes no keys while it looks for a tracked row. Nor
+  # does a frame start while --list0 runs (for up to 3s): fzf would end that
+  # reload for this one, and the panel would miss the change it was showing.
+  if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ] && [ "${FZF_IDLE_TIME_MS:-1000}" -ge 1000 ] &&
+     [ $(( frame - ${listing:-0} )) -ge 15 ]; then
+    act+="+untrack-current+reload-sync($self --frame)"
   fi
   printf '%s' "${act#+}"
 }
@@ -387,8 +392,8 @@ header() {
   done
 }
 
-# A row id is a pane id; the empty-state row uses "-". (fzf 0.74 hangs on
-# --track after a reload when the tracked row's id field is empty.)
+# A row id is a pane id; the empty-state row uses "-". (fzf 0.74 hangs
+# tracking a row across a reload when its id field is empty.)
 is_pane() { case "${1:-}" in %*) return 0 ;; esac; return 1; }
 
 # With "stay" (the docked panel), the panel moves to the agent's window in the
@@ -538,7 +543,7 @@ key() {
                           else did="${GREEN}✓${R} name reset"; fi ;;
     enter:*)              printf '%s' "$AGENTS_ENTER"; return ;;
     esc:'⌕ ')             [ "${FZF_INPUT_STATE:-hidden}" != hidden ] || { printf abort; return; } ;;
-    reload:'⌕ ')          printf 'reload-sync(%s --list0)' "$self"; return ;;
+    reload:'⌕ ')          printf 'track-current+reload-sync(%s --list0)' "$self"; return ;;
     first:*)              [ "$(tmux show -gv @agents_group 2>/dev/null)" = on ] && printf 'pos(2)'; return 0 ;;
     restore:'⌕ ')         ;;
     restore:*|reload:*)   return ;;
@@ -628,7 +633,7 @@ panel() {
   if [ "$watch" = watch ]; then
     start="execute-silent(tmux set -p -t \$TMUX_PANE @agents_state \$AGENTS_STATE)+"
     enter="execute-silent($self --jump {1} stay)"
-    new="execute(${self%/*}/agents-new stay)+reload-sync($self --list0)"
+    new="execute(${self%/*}/agents-new stay)+track-current+reload-sync($self --list0)"
     preview='down,40%,follow,border-rounded'
     hint_col=3
   else
@@ -657,16 +662,16 @@ panel() {
   while read -r -a k; do
     a="${k[0]}"
     case "$a" in
-      approve)   binds+=(--bind="${k[1]}:execute-silent($self --approve {1})+reload-sync($self --list0)") ;;
+      approve)   binds+=(--bind="${k[1]}:execute-silent($self --approve {1})+track-current+reload-sync($self --list0)") ;;
       message)   binds+=(--bind="${k[1]}:transform($self --key m {1})") ;;
       rename)    binds+=(--bind="${k[1]}:transform($self --key n {1})") ;;
       interrupt) binds+=(--bind="${k[1]}:execute-silent($self --interrupt {1})") ;;
       kill)      binds+=(--bind="${k[1]}:transform($self --key d {1})") ;;
       new)       binds+=(--bind="${k[1]}:$new") ;;
-      group)     binds+=(--bind="${k[1]}:execute-silent($self --group)+reload-sync($self --list0)") ;;
+      group)     binds+=(--bind="${k[1]}:execute-silent($self --group)+track-current+reload-sync($self --list0)") ;;
       preview)   binds+=(--bind="${k[1]}:toggle-preview+transform-preview-label:$label") ;;
       close)     binds+=(--bind="${k[1]}:abort") ;;
-      reload)    binds+=(--bind="${k[1]}:reload-sync($self --list0)") ;;
+      reload)    binds+=(--bind="${k[1]}:track-current+reload-sync($self --list0)") ;;
       down|up)   binds+=(--bind="${k[1]}:$a") ;;
     esac
     lock+="${k[1]},"
@@ -686,7 +691,7 @@ panel() {
   export AGENTS_LOCK="${lock%,}"
   lock+='up,down'
   local open="unbind($lock)+disable-search+change-input-label()+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
-  local close="+clear-query+enable-search+hide-input+change-prompt(⌕ )+change-input-label( filter )+rebind($lock)+reload-sync($self --list0)"
+  local close="+clear-query+enable-search+hide-input+change-prompt(⌕ )+change-input-label( filter )+rebind($lock)+track-current+reload-sync($self --list0)"
   export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
     AGENTS_M="$open+change-query()+transform-prompt($self --key message {3})" \
     AGENTS_N="$open+transform-query(printf %s {3})+transform-prompt($self --key rename {3})" \
@@ -696,7 +701,7 @@ panel() {
   # shellcheck disable=SC2154   # palette sets the colours
   fzf </dev/null \
     --ansi --read0 --no-input --no-sort --layout=reverse --cycle \
-    --delimiter=$'\t' --with-nth=2 --id-nth=1 --track \
+    --delimiter=$'\t' --with-nth=2 --id-nth=1 \
     --listen --bind "start:${start}transform-header-label($self --label)+execute-silent($sweep)+reload-sync($self --list0)+execute-silent:$tick" \
     --bind "every(0.2):bg-transform($self --tick)" \
     --bind "load:transform($self --key first)+unbind(load)" \
@@ -734,7 +739,9 @@ case "${1:-}" in
   '')          panel ;;
   --watch)     panel watch ;;
   --list)      list ;;
-  --list0)     list | nul ;;
+  --list0)     # tick holds the frames until this is in
+               s="${AGENTS_STATE:-}"; [ -z "$s" ] || { read -r f 2>/dev/null <"$s/frame" || f=0; echo "${f:-0}" >"$s/listing"; }
+               list | nul; [ -z "$s" ] || rm -f "$s/listing" ;;
   --frame)     list cached | nul ;;
   --header)    header ;;
   --rows)      rows | tr "$US" '\t' ;;

@@ -198,7 +198,7 @@ k 'kill › ' '' enter "$kp" sleeper | grep -q 'not killed: .*sleeper.* is gone'
 [ "$(k '⌕ ' '' enter "$b")" = jump ] && [ "$(k '⌕ ' '' esc)" = abort ] || fail "↵/esc outside a field"
 [ "$(FZF_INPUT_STATE=enabled k '⌕ ' do esc)" = change-footer:keys ] || fail "esc in the filter closed the panel"
 [ "$(k 'message to X › ' '' esc)" = change-footer:keys ] || fail "esc in a field closed the panel"
-[ "$(k '⌕ ' '' reload)" = "reload-sync($here/src/agents --list0)" ] || fail "reload outside a field"
+[ "$(k '⌕ ' '' reload)" = "track-current+reload-sync($here/src/agents --list0)" ] || fail "reload outside a field"
 [ -z "$(k 'rename X › ' '' reload)$(k 'rename X › ' '' restore)" ] || fail "reload/restore touched an open field"
 # / opens the filter, locking the action keys; a quick second / clears it,
 # then key shut closes it, once. A slow /, or one in a field, types.
@@ -281,7 +281,9 @@ TMUX_PANE=$shell "$here/src/agent-state" running </dev/null   # and on every 10s
 sleep 11
 [ -z "$(t display -p -t "$shell" '#{@agent_state}')" ] || fail "the panel's tick did not sweep"
 n="$(t capture-pane -p -t "$p" | grep -c '▲')"
-TMUX_PANE=$a "$here/src/agent-state" input </dev/null; sleep 1
+TMUX_PANE=$a "$here/src/agent-state" input </dev/null
+# Polled, not slept: a slow CI runner can take more than a second to redraw.
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(t capture-pane -p -t "$p" | grep -c '▲')" -gt "$n" ] && break; sleep 0.5; done
 [ "$(t capture-pane -p -t "$p" | grep -c '▲')" -gt "$n" ] || fail "panel did not reload on a state change"
 TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
@@ -293,8 +295,25 @@ for w in "$w2" "$s1" "$w1"; do "$here/src/agents-dock" follow "$w"; done
 [ "$(geo "$w2")" = "$g2" ] || fail "work:2 layout not restored: $(geo "$w2")"
 [ "$(geo "$s1")" = "$gs" ] || fail "side:1 layout not restored: $(geo "$s1")"
 
-# q after a reload closes it (fzf hung on --track with an empty row id).
-sleep 1; t wait-for -S agents; sleep 1; t send-keys -t "$p" q; sleep 1
+# A frame tracks no row: while fzf looks for one it drops the keys you press,
+# and with an agent working that was most of the time.
+mkdir "$tmp/tick"; echo '1 0 1' >"$tmp/tick/sum"; echo 1 >"$tmp/tick/seen"
+f="$(AGENTS_STATE="$tmp/tick" FZF_INPUT_STATE=hidden FZF_IDLE_TIME_MS=2000 "$here/src/agents" --tick)"
+[ "$f" = "untrack-current+reload-sync($here/src/agents --frame)" ] || fail "a frame tracks a row: $f"
+# Nor does a frame cut short the --list0 reload that shows a change: it waits
+# for it, up to 3s.
+echo 100 >"$tmp/tick/frame"; echo 95 >"$tmp/tick/listing"
+f="$(AGENTS_STATE="$tmp/tick" FZF_INPUT_STATE=hidden FZF_IDLE_TIME_MS=2000 "$here/src/agents" --tick)"
+[ -z "$f" ] || fail "a frame cut into a --list0 reload: $f"
+echo 120 >"$tmp/tick/frame"
+f="$(AGENTS_STATE="$tmp/tick" FZF_INPUT_STATE=hidden FZF_IDLE_TIME_MS=2000 "$here/src/agents" --tick)"
+[ -n "$f" ] || fail "frames stayed held after a --list0 that never finished"
+AGENTS_STATE="$tmp/tick" "$here/src/agents" --list0 >/dev/null
+[ ! -e "$tmp/tick/listing" ] || fail "--list0 left frames held"
+# q after a reload closes it (fzf hung tracking a row with an empty id), with
+# an agent working, so frames redraw under it.
+sleep 1; t wait-for -S agents; sleep 1; t send-keys -t "$p" q
+for _ in 1 2 3 4 5 6 7 8 9 10; do t list-panes -a -F '#{pane_id}' | grep -qx -- "$p" || break; sleep 0.5; done
 t list-panes -a -F '#{pane_id}' | grep -qx -- "$p" && fail "q did not close the docked panel"
 [ "$(geo "$w1")" = "$g1" ] || fail "work:1 layout not restored after q: $(geo "$w1")"
 gone() { for w in $mine; do kill -0 "$w" 2>/dev/null && fail "$1 left refresh loop $w running"; done; return 0; }
@@ -584,6 +603,27 @@ printf '%s\n' "$w" | grep -qx "$cl-worktrees/feat-x" && fail "where: listed the 
 for r in one two; do printf '%s\n' "$w" | grep -qx "$tmp/roots/$r" || fail "where: no $r from @agents_roots: $w"; done
 [ "$(printf '%s\n' "$w" | sort | uniq -d)" = '' ] || fail "where: repeats: $w"
 printf '%s\n' "$w" | grep -q 'one-worktrees' && fail "where: listed a worktrees folder: $w"
+# A typed path lists the folders in it, as typed: no files, dotfolders only
+# for a dot, the folder itself first when the path ends in /.
+touch "$tmp/roots/file"; mkdir -p "$tmp/roots/.hid"
+w="$(new --ls "$tmp/roots/" | cut -f2)"
+[ "$w" = "$(printf '%s\n' "$tmp/roots/" "$tmp/roots/one-worktrees/" "$tmp/roots/one/" "$tmp/roots/two/")" ] || fail "where: ls of a path: $w"
+w="$(new --ls "$tmp/roots/t")"
+printf '%s\n' "$w" | grep -qx "$tmp/roots/two"$'\t'"$tmp/roots/two/" || fail "where: ls of a partial path: $w"
+w="$(new --ls "$tmp/roots/." | cut -f2)"
+printf '%s\n' "$w" | grep -qx "$tmp/roots/.hid/" || fail "where: no dotfolder after a dot: $w"
+printf '%s\n' "$w" | grep -q '/\.\.*/$' && fail "where: listed . or .. after a dot: $w"
+w="$(new --ls "$tmp/roots/x")"
+printf '%s\n' "$w" | grep -q '\.hid' && fail "where: dotfolder without a dot: $w"
+# shellcheck disable=SC2088   # the ~ is typed, not expanded
+w="$(HOME="$tmp" new --ls '~/roots/o')"
+printf '%s\n' "$w" | grep -qx "$tmp/roots/one"$'\t~/roots/one/' || fail "where: ~ not kept: $w"
+t set -g @agents_roots "$tmp/roots"
+w="$(HOME="$tmp" new --ls one)"
+printf '%s\n' "$w" | grep -qx "$tmp/roots/one"$'\t~/roots/one' || fail "where: a word does not list the usual folders, ~ as ~: $w"
+[ "$(new --tab x "$tmp/roots/one")" = "$tmp/roots/one/" ] || fail "where: tab did not descend"
+[ "$(new --tab "$tmp/roots/" "$tmp/roots/")" = "$tmp/roots/" ] || fail "where: tab doubled the /"
+[ "$(new --tab "$tmp/ro" '')" = "$tmp/ro" ] || fail "where: tab with nothing chosen changed the query"
 t set -g @agents_roots ''
 TMUX_PANE=$nb "$here/src/agent-state" clear </dev/null
 for q in $np $np2 $np3 $nb $nb2 $nb3; do t kill-pane -t "$q"; done
