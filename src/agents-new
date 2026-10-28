@@ -8,7 +8,8 @@
 #   where    a directory: the ones the running agents work in (a repo by its
 #            main checkout), the folders in @agents_roots (less any
 #            <repo>-worktrees), or a path you type
-#            (starting with /, ~ or .), repo or not
+#            (starting with /, ~ or .), repo or not; as you type one the
+#            list shows the folders in it, and tab goes into the chosen one
 #   worktree in a git repo, where to run: the checkout itself or one of its
 #            worktrees, or + new worktree: a new branch, made at
 #            <repo>-worktrees/<branch, / as -> from origin's default branch
@@ -136,6 +137,29 @@ dirs() {
   done
 }
 
+# ls QUERY: the where step's choices for what's typed: for a path, the
+# folders in it as typed (dotfolders only after a dot), the folder itself
+# first when it ends in /; else dirs.
+ls_() {
+  local q="$1" p b d
+  case "$q" in (/*|'~'*|.*) ;; (*) dirs; return ;; esac
+  case "$q" in
+    (*/*) p="${q%/*}/" b="${q##*/}" ;;
+    (*) [ ! -d "${q/#\~/$HOME}" ] || printf '%s\t%s/\n' "${q/#\~/$HOME}" "$q"; return 0 ;;
+  esac
+  local r="${p/#\~/$HOME}"
+  [ -d "$r" ] || return 0
+  [ -n "$b" ] || printf '%s\t%s\n' "$r" "$p"
+  for d in "$r"*/; do [ -d "$d" ] && printf '%s\t%s/\n' "${d%/}" "$p${d:${#r}:${#d}-${#r}-1}"; done
+  case "$b" in (.*)
+    for d in "$r".*/; do
+      case "$d" in (*/./|*/../) continue ;; esac
+      [ -d "$d" ] && printf '%s\t%s/\n' "${d%/}" "$p${d:${#r}:${#d}-${#r}-1}"
+    done ;;
+  esac
+  return 0
+}
+
 # worktrees MAIN: the worktree step's choices: new, then the checkout and
 # each worktree, by branch and folder.
 worktrees() {
@@ -187,10 +211,13 @@ ask() {
   cancel() { [ "$stay" = stay ] || exec "$here/agents"; exit 0; }
   note="${DIM}a folder below, or type a path (/, ~ or .)$R"
   while :; do
-    rc=0; out="$(dirs | step 'where › ' "$note" --keep-right)" || rc=$?
+    # The list follows a typed path; tab goes into the chosen folder.
+    rc=0; out="$(dirs | step 'where › ' "$note" --keep-right \
+      --bind "change:reload-sync($here/agents-new --ls {q})" \
+      --bind "tab:transform-query($here/agents-new --tab {q} {2})")" || rc=$?
     [ "$rc" -le 1 ] || cancel
     q="$(sed -n 1p <<<"$out")" sel="$(sed -n 2p <<<"$out" | cut -f1)"
-    case "$q" in (/*|'~'*|.*) dir="${q/#\~/$HOME}" ;; (*) dir="$sel" ;; esac
+    case "$q" in (/*|'~'*|.*) dir="${sel:-${q/#\~/$HOME}}" ;; (*) dir="$sel" ;; esac
     [ -n "$dir" ] || { note="${AMBER}✗$R pick a folder, or type a path"; continue; }
     dir="$(cd "$dir" 2>/dev/null && pwd -P)" && break
     note="${AMBER}✗$R no such folder: $TEXT$q$R"
@@ -242,6 +269,9 @@ ask() {
 case "${1:-}" in
   ''|stay) ask "${1:-}" ;;
   --dirs) dirs | cut -f1 ;;
+  --ls) ls_ "${2:-}" ;;
+  # --tab QUERY ROW: the where step's query after tab: ROW's folder, else as it was.
+  --tab) if [ -n "${3:-}" ]; then printf '%s/' "${3%/}"; else printf '%s' "${2:-}"; fi ;;
   --profiles) profiles ;;
   --*)
     dir='' branch='' agent='' text='' sess=''

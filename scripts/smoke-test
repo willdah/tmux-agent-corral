@@ -584,6 +584,26 @@ printf '%s\n' "$w" | grep -qx "$cl-worktrees/feat-x" && fail "where: listed the 
 for r in one two; do printf '%s\n' "$w" | grep -qx "$tmp/roots/$r" || fail "where: no $r from @agents_roots: $w"; done
 [ "$(printf '%s\n' "$w" | sort | uniq -d)" = '' ] || fail "where: repeats: $w"
 printf '%s\n' "$w" | grep -q 'one-worktrees' && fail "where: listed a worktrees folder: $w"
+# A typed path lists the folders in it, as typed: no files, dotfolders only
+# for a dot, the folder itself first when the path ends in /.
+touch "$tmp/roots/file"; mkdir -p "$tmp/roots/.hid"
+w="$(new --ls "$tmp/roots/" | cut -f2)"
+[ "$w" = "$(printf '%s\n' "$tmp/roots/" "$tmp/roots/one-worktrees/" "$tmp/roots/one/" "$tmp/roots/two/")" ] || fail "where: ls of a path: $w"
+w="$(new --ls "$tmp/roots/t")"
+printf '%s\n' "$w" | grep -qx "$tmp/roots/two"$'\t'"$tmp/roots/two/" || fail "where: ls of a partial path: $w"
+w="$(new --ls "$tmp/roots/." | cut -f2)"
+printf '%s\n' "$w" | grep -qx "$tmp/roots/.hid/" || fail "where: no dotfolder after a dot: $w"
+printf '%s\n' "$w" | grep -q '/\.\.*/$' && fail "where: listed . or .. after a dot: $w"
+w="$(new --ls "$tmp/roots/x")"
+printf '%s\n' "$w" | grep -q '\.hid' && fail "where: dotfolder without a dot: $w"
+# shellcheck disable=SC2088   # the ~ is typed, not expanded
+w="$(HOME="$tmp" new --ls '~/roots/o')"
+printf '%s\n' "$w" | grep -qx "$tmp/roots/one"$'\t~/roots/one/' || fail "where: ~ not kept: $w"
+t set -g @agents_roots "$tmp/roots"
+[ "$(new --ls one)" = "$(new --dirs | while IFS= read -r x; do printf '%s\t%s\n' "$x" "${x/#$HOME/\~}"; done)" ] || fail "where: a word does not list the usual folders"
+[ "$(new --tab x "$tmp/roots/one")" = "$tmp/roots/one/" ] || fail "where: tab did not descend"
+[ "$(new --tab "$tmp/roots/" "$tmp/roots/")" = "$tmp/roots/" ] || fail "where: tab doubled the /"
+[ "$(new --tab "$tmp/ro" '')" = "$tmp/ro" ] || fail "where: tab with nothing chosen changed the query"
 t set -g @agents_roots ''
 TMUX_PANE=$nb "$here/src/agent-state" clear </dev/null
 for q in $np $np2 $np3 $nb $nb2 $nb3; do t kill-pane -t "$q"; done
