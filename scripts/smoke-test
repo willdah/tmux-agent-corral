@@ -198,7 +198,7 @@ k 'kill › ' '' enter "$kp" sleeper | grep -q 'not killed: .*sleeper.* is gone'
 [ "$(k '⌕ ' '' enter "$b")" = jump ] && [ "$(k '⌕ ' '' esc)" = abort ] || fail "↵/esc outside a field"
 [ "$(FZF_INPUT_STATE=enabled k '⌕ ' do esc)" = change-footer:keys ] || fail "esc in the filter closed the panel"
 [ "$(k 'message to X › ' '' esc)" = change-footer:keys ] || fail "esc in a field closed the panel"
-[ "$(k '⌕ ' '' reload)" = "reload-sync($here/src/agents --list0)" ] || fail "reload outside a field"
+[ "$(k '⌕ ' '' reload)" = "track-current+reload-sync($here/src/agents --list0)" ] || fail "reload outside a field"
 [ -z "$(k 'rename X › ' '' reload)$(k 'rename X › ' '' restore)" ] || fail "reload/restore touched an open field"
 # / opens the filter, locking the action keys; a quick second / clears it,
 # then key shut closes it, once. A slow /, or one in a field, types.
@@ -295,7 +295,13 @@ for w in "$w2" "$s1" "$w1"; do "$here/src/agents-dock" follow "$w"; done
 [ "$(geo "$w2")" = "$g2" ] || fail "work:2 layout not restored: $(geo "$w2")"
 [ "$(geo "$s1")" = "$gs" ] || fail "side:1 layout not restored: $(geo "$s1")"
 
-# q after a reload closes it (fzf hung on --track with an empty row id).
+# A frame tracks no row: while fzf looks for one it drops the keys you press,
+# and with an agent working that was most of the time.
+mkdir "$tmp/tick"; echo '1 0 1' >"$tmp/tick/sum"; echo 1 >"$tmp/tick/seen"
+f="$(AGENTS_STATE="$tmp/tick" FZF_INPUT_STATE=hidden FZF_IDLE_TIME_MS=2000 "$here/src/agents" --tick)"
+[ "$f" = "untrack-current+reload-sync($here/src/agents --frame)" ] || fail "a frame tracks a row: $f"
+# q after a reload closes it (fzf hung tracking a row with an empty id), with
+# an agent working, so frames redraw under it.
 sleep 1; t wait-for -S agents; sleep 1; t send-keys -t "$p" q
 for _ in 1 2 3 4 5 6 7 8 9 10; do t list-panes -a -F '#{pane_id}' | grep -qx -- "$p" || break; sleep 0.5; done
 t list-panes -a -F '#{pane_id}' | grep -qx -- "$p" && fail "q did not close the docked panel"
