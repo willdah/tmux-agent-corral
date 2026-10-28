@@ -198,8 +198,7 @@ k 'kill › ' '' enter "$kp" sleeper | grep -q 'not killed: .*sleeper.* is gone'
 [ "$(k '⌕ ' '' enter "$b")" = jump ] && [ "$(k '⌕ ' '' esc)" = abort ] || fail "↵/esc outside a field"
 [ "$(FZF_INPUT_STATE=enabled k '⌕ ' do esc)" = change-footer:keys ] || fail "esc in the filter closed the panel"
 [ "$(k 'message to X › ' '' esc)" = change-footer:keys ] || fail "esc in a field closed the panel"
-[ "$(k '⌕ ' '' reload)" = "reload-sync($here/src/agents --list0)" ] || fail "reload outside a field"
-[ -z "$(k 'rename X › ' '' reload)$(k 'rename X › ' '' restore)" ] || fail "reload/restore touched an open field"
+[ -z "$(k 'rename X › ' '' restore)" ] || fail "restore touched an open field"
 # / opens the filter, locking the action keys; a quick second / clears it,
 # then key shut closes it, once. A slow /, or one in a field, types.
 mkdir "$tmp/st"
@@ -319,6 +318,41 @@ lit || fail "refocused panel's title not marked: $(title)"
 # The summary counts the agents; the list under it shows them.
 t capture-pane -p -t "$p" | grep -q 'need you' || fail "no summary in the docked panel: $(t capture-pane -p -t "$p")"
 "$here/src/agents-dock" toggle "$w1"; sleep 0.5
+
+# The working rows animate while you move through the list, and no key is
+# lost to a frame. Eight more agents, named so their rows can be told apart.
+extra=()
+for i in $(seq 8); do
+  x="$(t new-window -d -P -F '#{pane_id}' -t side: 'sleep 600')"; extra+=("$x")
+  t set -p -t "$x" @agent_name "agent$i"; TMUX_PANE=$x "$here/src/agent-state" running </dev/null
+done
+"$here/src/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"; sleep 2
+line() { t capture-pane -p -t "$p" | grep -n '▌' | cut -d: -f1; }
+names() { t capture-pane -p -t "$p" | grep -o 'agent[0-9][0-9]*'; }
+cursor() { t capture-pane -p -t "$p" | grep '▌' | grep -o 'agent[0-9][0-9]*'; }
+wave() { t capture-pane -p -t "$p" | grep "$1 " | perl -CS -ne 'print $1 if /([\x{2800}-\x{28ff}]+)/'; }
+# sort -u bytewise: macOS's collation takes the braille cells for equal.
+kinds() { printf '%s\n' "$@" | LC_ALL=C sort -u | wc -l | tr -d ' '; }
+top="$(line)" seen=()
+for _ in $(seq 7); do t send-keys -t "$p" j; sleep 0.15; seen+=("$(wave agent1)"); done
+sleep 0.3
+[ "$(line)" = $(( top + 7 )) ] || fail "7 js moved the cursor $(( $(line) - top )) rows"
+[ "$(kinds "${seen[@]}")" -gt 1 ] || fail "the working rows froze while moving: ${seen[*]}"
+# A refresh that reorders the rows keeps the cursor on its agent: agent8
+# starts waiting and moves above it.
+t send-keys -t "$p" k k k; sleep 0.3; on="$(cursor)"
+[ -n "$on" ] || fail "the cursor is not on a named agent"
+TMUX_PANE=${extra[7]} "$here/src/agent-state" input </dev/null; sleep 1.5
+[ "$(names | grep -nx agent8 | cut -d: -f1)" -lt "$(names | grep -nx "$on" | cut -d: -f1)" ] || fail "agent8 did not move above $on: $(names | tr '\n' ' ')"
+[ "$(cursor)" = "$on" ] || fail "the reorder moved the cursor from $on to $(cursor)"
+# An open field holds the rows still, and m after a refresh is not lost.
+t send-keys -t "$p" m; sleep 0.4
+t capture-pane -p -t "$p" | grep -q "message to $on" || fail "m did not open the field: $(t capture-pane -p -t "$p" | head -12)"
+seen=(); for _ in 1 2 3 4 5; do seen+=("$(wave agent1)"); sleep 0.2; done
+[ "$(kinds "${seen[@]}")" = 1 ] || fail "the working rows moved under an open field: ${seen[*]}"
+t send-keys -t "$p" Escape; sleep 0.3
+"$here/src/agents-dock" toggle "$w1"; sleep 0.5
+for x in "${extra[@]}"; do t kill-pane -t "$x"; done
 
 # @agents_panel_key_<action> moves a panel key, footer hint and all; empty
 # unbinds it.
