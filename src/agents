@@ -62,7 +62,7 @@ tick() {
   read -r seen 2>/dev/null <"$s/seen" || true
   # The reload last: fzf drops what follows a reload-sync in one transform.
   if [ -f "$s/label" ] || [ -f "$s/shimmer" ]; then rm -f "$s/label"; act+="+transform-header-label($self --label)"; fi
-  if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ $(( nin + nrun )) -gt 0 ]; then seen=animating; fi
+  if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nin" -gt 0 ]; then seen=animating; fi   # only needs you breathes
   if [ "$gen" != "$seen" ]; then echo "$gen" >"$s/seen"; act+="+bg-transform-header($self --header)"; fi
   # The rows hold still for a second after each key: a reload under a key
   # press loses it or moves the cursor.
@@ -88,9 +88,9 @@ GOLD=$'\033[38;2;232;196;104m' GOLD1=$'\033[38;2;255;246;214m' GOLD2=$'\033[38;2
 frame=0
 [ -z "${AGENTS_STATE:-}" ] || read -r frame 2>/dev/null <"$AGENTS_STATE/frame" || true
 
-# A working agent's mark: a braille sine wave two cells wide that travels a
-# dot column a frame.
-WAVE=(⠊⠑ ⠔⠉ ⡠⠊ ⣀⠔ ⢄⡠ ⠢⣀ ⠑⢄ ⠉⠢)
+# A working agent's mark: a braille sine wave three dots wide (two cells, the
+# second half empty) that travels a dot column a frame.
+WAVE=(⠊⠁ ⠔⠁ ⡠⠂ ⣀⠄ ⢄⡀ ⠢⡀ ⠑⠄ ⠉⠂)
 
 # pulse: sets PULSE, the needs-you colour breathing from 45% to full and back
 # every 1.6s (8 frames), in true colour. One of the 16 basic colours has no fixed value
@@ -330,19 +330,12 @@ list() {
   done <<<"$rows"
 }
 
-# bar <state> <cells>: sets bar, a run of ━ in the state's colour. Working
-# carries a shine that sweeps along it; needs you breathes ($PULSE).
+# bar <state> <cells>: sets bar, a run of ━ in the state's colour; needs you
+# breathes ($PULSE).
 bar() {
-  local i c last='' base=$BLUE sh
-  bar=''
-  case "$1" in
-    (running)
-      sh=$(( frame * 2 % ($2 + 8) - 4 ))
-      for (( i = 0; i < $2; i++ )); do band $(( i - sh )); [ "$c" = "$last" ] || { bar+=$c; last=$c; }; bar+='━'; done ;;
-    (*) case "$1" in (input) c=$PULSE ;; (done) c=$GREEN ;; (*) c=$FAINT ;; esac
-        printf -v bar '%*s' "$2" ''; bar="$c${bar// /━}" ;;
-  esac
-  bar+=$R
+  local c
+  case "$1" in (input) c=$PULSE ;; (running) c=$BLUE ;; (done) c=$GREEN ;; (*) c=$FAINT ;; esac
+  printf -v bar '%*s' "$2" ''; bar="$c${bar// /━}$R"
 }
 
 # header: the summary over the list, from the panel's counts. With room, one
