@@ -67,15 +67,16 @@ tick() {
   if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nin" -gt 0 ]; then seen=animating; fi   # only needs you breathes
   if [ "$gen" != "$seen" ]; then echo "$gen" >"$s/seen"; act+="+bg-transform-header($self --header)"; fi
   # A refresh staged in next reorders the rows, so it waits for a second
-  # without keys and out of any field, and tracks the cursor's agent. A
-  # frame keeps the rows in place, so it runs while you move and tracks
-  # none: fzf takes no keys while it looks for a tracked row. Nor does a
-  # frame start while --list0 or --apply runs (for up to 3s): fzf would end
-  # that reload for this one, and the panel would miss the change it was
-  # showing.
-  if [ -f "$s/next" ] && [ "${FZF_PROMPT:-}" = '⌕ ' ] && [ "${FZF_IDLE_TIME_MS:-1000}" -ge 1000 ]; then
+  # without keys, out of the filter and any field, and tracks the cursor's
+  # agent. A frame keeps the rows in place, so it runs while you move and
+  # tracks none: fzf takes no keys while it looks for a tracked row. Neither
+  # starts while --list0 or --apply runs (for up to 3s): fzf would end that
+  # reload for this one, and the panel would miss the change it was showing.
+  [ $(( frame - ${listing:-0} )) -ge 15 ] || { printf '%s' "${act#+}"; return; }
+  if [ -f "$s/next" ] && [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "${FZF_PROMPT:-}" = '⌕ ' ] &&
+     [ "${FZF_IDLE_TIME_MS:-1000}" -ge 1000 ]; then
     act+="+track-current+reload-sync($self --apply)"
-  elif [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ] && [ $(( frame - ${listing:-0} )) -ge 15 ]; then
+  elif [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ]; then
     act+="+untrack-current+reload-sync($self --frame)"
   fi
   printf '%s' "${act#+}"
@@ -710,7 +711,7 @@ panel() {
     --listen --bind "start:${start}transform-header-label($self --label)+execute-silent($sweep)+reload-sync($self --list0)+execute-silent:$tick" \
     --bind "every(0.2):bg-transform($self --tick)" \
     --bind "load:transform($self --key first)+unbind(load)" \
-    --bind "resize:reload-sync($self --frame)" \
+    --bind "resize:execute-silent($self --stage)" \
     --header=' ' --header-first --header-border=rounded --header-label=' agent-corral ' --header-label-pos=0 \
     --input-border=rounded --input-label=' filter ' --input-label-pos=3 --prompt='⌕ ' \
     --list-border=rounded --list-label=' agents ' --list-label-pos=3 \
@@ -731,7 +732,7 @@ panel() {
     ${binds[@]+"${binds[@]}"} \
     >/dev/null || true
   # Wake this panel's waiter so it sees fzf gone and exits now, not on the
-  # next state change; any other open panel just reloads once.
+  # next state change; any other open panel just stages one refresh.
   tmux wait-for -S agents 2>/dev/null || true
 }
 
@@ -747,6 +748,7 @@ case "${1:-}" in
   --list0|--apply)   # tick holds the frames until this is in
                s="${AGENTS_STATE:-}"; [ -z "$s" ] || { read -r f 2>/dev/null <"$s/frame" || f=0; echo "${f:-0}" >"$s/listing"; }
                if [ "$1" = --list0 ]; then list | nul
+               # taken: the staged rows, moved aside so a --stage meanwhile starts a new next
                else mv "$s/next" "$s/taken" 2>/dev/null && keep "$(cat "$s/taken")"; list cached | nul; fi
                [ -z "$s" ] || rm -f "$s/listing" ;;
   --frame)     list cached | nul ;;

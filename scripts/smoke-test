@@ -357,12 +357,15 @@ for _ in $(seq 7); do t send-keys -t "$p" j; sleep 0.15; seen+=("$(wave agent1)"
 sleep 0.3
 [ "$(line)" = $(( top + 7 )) ] || fail "7 js moved the cursor $(( $(line) - top )) rows"
 [ "$(kinds "${seen[@]}")" -gt 1 ] || fail "the working rows froze while moving: ${seen[*]}"
-# A refresh that reorders the rows keeps the cursor on its agent: agent8
-# starts waiting and moves above it.
+# A refresh that reorders the rows keeps the cursor on its agent: another
+# agent starts waiting and moves above it.
 t send-keys -t "$p" k k k; sleep 0.3; on="$(cursor)"
 [ -n "$on" ] || fail "the cursor is not on a named agent"
-TMUX_PANE=${extra[7]} "$here/src/agent-state" input </dev/null; sleep 1.5
-[ "$(names | grep -nx agent8 | cut -d: -f1)" -lt "$(names | grep -nx "$on" | cut -d: -f1)" ] || fail "agent8 did not move above $on: $(names | tr '\n' ' ')"
+up=8; [ "$on" != agent8 ] || up=7
+TMUX_PANE=${extra[up-1]} "$here/src/agent-state" input </dev/null
+above() { [ "$(names | grep -nx "agent$up" | cut -d: -f1)" -lt "$(names | grep -nx "$on" | cut -d: -f1)" ]; }
+for _ in $(seq 20); do above && break; sleep 0.2; done
+above || fail "agent$up did not move above $on: $(names | tr '\n' ' ')"
 [ "$(cursor)" = "$on" ] || fail "the reorder moved the cursor from $on to $(cursor)"
 # An open field holds the rows still, and m after a refresh is not lost.
 t send-keys -t "$p" m; sleep 0.4
