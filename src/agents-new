@@ -45,6 +45,9 @@ here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=src/common.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
+# bash 3.2 keeps the \ of a \~ replacement, so ~ goes in through a variable.
+TILDE='~'
+
 # sq TEXT: TEXT quoted for any shell the session might run.
 sq() { local q="'\\''"; printf "'%s'" "${1//\'/$q}"; }
 
@@ -133,7 +136,7 @@ dirs() {
       done
     done
   } | awk '!seen[$0]++' | while IFS= read -r d; do
-    printf '%s\t%s\n' "$d" "${d/#$HOME/\~}"
+    printf '%s\t%s\n' "$d" "${d/#$HOME/$TILDE}"
   done
 }
 
@@ -241,7 +244,7 @@ ask() {
   fi
 
   # The folder, its end kept when long: that's the part that tells them apart.
-  shown="${dir/#$HOME/\~}"; [ "${#shown}" -le 48 ] || shown="…${shown:${#shown}-47}"
+  shown="${dir/#$HOME/$TILDE}"; [ "${#shown}" -le 48 ] || shown="…${shown:${#shown}-47}"
   rc=0; out="$(sessions | step 'session › ' "${DIM}the session to add $TEXT$shown$DIM to$R")" || rc=$?
   [ "$rc" = 0 ] || cancel
   sess="$(sed -n 2p <<<"$out" | cut -f1)"; [ "$sess" != + ] || sess=''
