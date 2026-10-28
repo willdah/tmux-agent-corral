@@ -36,7 +36,8 @@
 # It animates on fzf's every() timer: needs you breathes while anyone waits,
 # and a working agent's row carries a travelling wave and a shine. Each frame
 # re-shows fzf's cursor, so nothing animates while the filter or a field is
-# open.
+# open. Frames keep the rows' order, so they run while you move; only a
+# refresh reorders them, and it waits for you (see tick).
 #
 # Columns fit the panel's width (fzf's $FZF_COLUMNS).
 # NO_COLOR turns the colours off.
@@ -65,13 +66,17 @@ tick() {
   if [ -f "$s/label" ] || [ -f "$s/shimmer" ]; then rm -f "$s/label"; act+="+transform-header-label($self --label)"; fi
   if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nin" -gt 0 ]; then seen=animating; fi   # only needs you breathes
   if [ "$gen" != "$seen" ]; then echo "$gen" >"$s/seen"; act+="+bg-transform-header($self --header)"; fi
-  # The rows hold still for a second after each key: a reload under a key
-  # press loses it or moves the cursor. A frame keeps the rows in place, so
-  # it tracks none: fzf takes no keys while it looks for a tracked row. Nor
-  # does a frame start while --list0 runs (for up to 3s): fzf would end that
+  # A refresh staged in next reorders the rows, so it waits for a second
+  # without keys, out of the filter and any field, and tracks the cursor's
+  # agent. A frame keeps the rows in place, so it runs while you move and
+  # tracks none: fzf takes no keys while it looks for a tracked row. Neither
+  # starts while --list0 or --apply runs (for up to 3s): fzf would end that
   # reload for this one, and the panel would miss the change it was showing.
-  if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ] && [ "${FZF_IDLE_TIME_MS:-1000}" -ge 1000 ] &&
-     [ $(( frame - ${listing:-0} )) -ge 15 ]; then
+  [ $(( frame - ${listing:-0} )) -ge 15 ] || { printf '%s' "${act#+}"; return; }
+  if [ -f "$s/next" ] && [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "${FZF_PROMPT:-}" = '⌕ ' ] &&
+     [ "${FZF_IDLE_TIME_MS:-1000}" -ge 1000 ]; then
+    act+="+track-current+reload-sync($self --apply)"
+  elif [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ]; then
     act+="+untrack-current+reload-sync($self --frame)"
   fi
   printf '%s' "${act#+}"
@@ -270,7 +275,11 @@ keep() {
 list() {
   local rows now cols
   if [ "${1:-}" = cached ]; then rows="$(cat "$AGENTS_STATE/rows")"
-  else rows="$(rows)"; [ -z "${AGENTS_STATE:-}" ] || keep "$rows"; fi
+  else
+    rows="$(rows)"
+    # Fresher than any staged refresh.
+    [ -z "${AGENTS_STATE:-}" ] || { rm -f "$AGENTS_STATE/next"; keep "$rows"; }
+  fi
   now="$(date +%s)"
 
   # Status, agent, age and gaps are fixed; the title gets what's left after
@@ -505,8 +514,6 @@ slash() {
 #                           put back by key restore 3s later; elsewhere, jump
 #   key esc                 leave the field, or close the panel
 #   key first               on opening grouped, start on the first agent, not its heading
-#   key reload              the refresh, held while a field is open so the
-#                           row being written to stays the selected one
 #   key slash, key shut     / and its second half: see slash
 # Closing the field is chained after key in the bind: fzf drops a clear-query
 # that comes out of a transform, and the query would go on filtering the list.
@@ -543,10 +550,9 @@ key() {
                           else did="${GREEN}✓${R} name reset"; fi ;;
     enter:*)              printf '%s' "$AGENTS_ENTER"; return ;;
     esc:'⌕ ')             [ "${FZF_INPUT_STATE:-hidden}" != hidden ] || { printf abort; return; } ;;
-    reload:'⌕ ')          printf 'track-current+reload-sync(%s --list0)' "$self"; return ;;
     first:*)              [ "$(tmux show -gv @agents_group 2>/dev/null)" = on ] && printf 'pos(2)'; return 0 ;;
     restore:'⌕ ')         ;;
-    restore:*|reload:*)   return ;;
+    restore:*)            return ;;
   esac
   if [ -n "$did" ]; then
     printf 'execute-silent[(sleep 3; curl -fs -XPOST localhost:$FZF_PORT -d %s) >/dev/null 2>&1 &]' "'transform:$self --key restore'"
@@ -679,12 +685,12 @@ panel() {
     [ "$hint" = - ] || addhint "${k[1]}" "$hint"
   done < <(keymap)
 
-  # Refresh through fzf's own HTTP port: at once when agent-state signals the
-  # agents channel, and every 10s for the ages, after a sweep for agents that
-  # died without a word. Each loop ends on its first reload after fzf has gone.
-  local sweep="'${self%/*}/agent-state' sweep"
-  local reload="curl -fs -XPOST localhost:\$FZF_PORT -d 'transform:$self --key reload'"
-  local tick="(while sleep 10 && $sweep && $reload; do :; done) >/dev/null 2>&1 & (while tmux wait-for agents && $reload; do :; done) >/dev/null 2>&1 &"
+  # Stage a refresh for the tick to apply: at once when agent-state signals
+  # the agents channel, and every 10s, after a sweep for agents that died
+  # without a word. Each loop ends on its first check after fzf has gone.
+  local sweep="'${self%/*}/agent-state' sweep" stage="'$self' --stage"
+  local alive="curl -fs -XPOST localhost:\$FZF_PORT -d ignore"
+  local tick="(while sleep 10 && $sweep && $stage && $alive; do :; done) >/dev/null 2>&1 & (while tmux wait-for agents && $stage && $alive; do :; done) >/dev/null 2>&1 &"
 
   # While the filter is open the action keys type. While a field is, ↑↓ stay
   # put too, so the row being written to can't change underneath.
@@ -705,7 +711,7 @@ panel() {
     --listen --bind "start:${start}transform-header-label($self --label)+execute-silent($sweep)+reload-sync($self --list0)+execute-silent:$tick" \
     --bind "every(0.2):bg-transform($self --tick)" \
     --bind "load:transform($self --key first)+unbind(load)" \
-    --bind "resize:transform($self --key reload)" \
+    --bind "resize:execute-silent($self --stage)" \
     --header=' ' --header-first --header-border=rounded --header-label=' agent-corral ' --header-label-pos=0 \
     --input-border=rounded --input-label=' filter ' --input-label-pos=3 --prompt='⌕ ' \
     --list-border=rounded --list-label=' agents ' --list-label-pos=3 \
@@ -726,7 +732,7 @@ panel() {
     ${binds[@]+"${binds[@]}"} \
     >/dev/null || true
   # Wake this panel's waiter so it sees fzf gone and exits now, not on the
-  # next state change; any other open panel just reloads once.
+  # next state change; any other open panel just stages one refresh.
   tmux wait-for -S agents 2>/dev/null || true
 }
 
@@ -739,10 +745,14 @@ case "${1:-}" in
   '')          panel ;;
   --watch)     panel watch ;;
   --list)      list ;;
-  --list0)     # tick holds the frames until this is in
+  --list0|--apply)   # tick holds the frames until this is in
                s="${AGENTS_STATE:-}"; [ -z "$s" ] || { read -r f 2>/dev/null <"$s/frame" || f=0; echo "${f:-0}" >"$s/listing"; }
-               list | nul; [ -z "$s" ] || rm -f "$s/listing" ;;
+               if [ "$1" = --list0 ]; then list | nul
+               # taken: the staged rows, moved aside so a --stage meanwhile starts a new next
+               else mv "$s/next" "$s/taken" 2>/dev/null && keep "$(cat "$s/taken")"; list cached | nul; fi
+               [ -z "$s" ] || rm -f "$s/listing" ;;
   --frame)     list cached | nul ;;
+  --stage)     r="$(rows)" && printf '%s\n' "$r" >"$AGENTS_STATE/next.$$" && mv "$AGENTS_STATE/next.$$" "$AGENTS_STATE/next" ;;
   --header)    header ;;
   --rows)      rows | tr "$US" '\t' ;;
   --keys)      keymap ;;
