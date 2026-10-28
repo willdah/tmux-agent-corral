@@ -281,7 +281,9 @@ TMUX_PANE=$shell "$here/src/agent-state" running </dev/null   # and on every 10s
 sleep 11
 [ -z "$(t display -p -t "$shell" '#{@agent_state}')" ] || fail "the panel's tick did not sweep"
 n="$(t capture-pane -p -t "$p" | grep -c '▲')"
-TMUX_PANE=$a "$here/src/agent-state" input </dev/null; sleep 1
+TMUX_PANE=$a "$here/src/agent-state" input </dev/null
+# Polled, not slept: a slow CI runner can take more than a second to redraw.
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(t capture-pane -p -t "$p" | grep -c '▲')" -gt "$n" ] && break; sleep 0.5; done
 [ "$(t capture-pane -p -t "$p" | grep -c '▲')" -gt "$n" ] || fail "panel did not reload on a state change"
 TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
