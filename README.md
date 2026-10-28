@@ -12,7 +12,7 @@
 
 </div>
 
-<p align="center"><img src="https://github.com/user-attachments/assets/1d57de7b-82fb-42ba-82bd-aea325a0d68e" alt="An agent in another tmux session stops on a permission prompt; the panel, grouped by session, approves it and jumps to a finished agent, then docks and follows across windows and sessions" width="880"></p>
+<p align="center"><img src="https://github.com/user-attachments/assets/20aa3597-199a-4ca1-8284-f96e89e31651" alt="An agent in another tmux session stops on a permission prompt; the panel, grouped by session, approves it and jumps to a finished agent, then docks and follows across windows and sessions" width="880"></p>
 
 Claude Code, Copilot CLI and Pi sessions, in any tmux session, window or pane, report their state to tmux. You see at a glance which agent needs you, which are working, and which have finished, then jump to it, approve it, message it or interrupt it from one panel.
 
