@@ -284,7 +284,9 @@ n="$(t capture-pane -p -t "$p" | grep -c '▲')"
 TMUX_PANE=$a "$here/src/agent-state" input </dev/null
 # Polled, not slept: a slow CI runner can take more than a second to redraw.
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(t capture-pane -p -t "$p" | grep -c '▲')" -gt "$n" ] && break; sleep 0.5; done
-[ "$(t capture-pane -p -t "$p" | grep -c '▲')" -gt "$n" ] || fail "panel did not reload on a state change"
+[ "$(t capture-pane -p -t "$p" | grep -c '▲')" -gt "$n" ] || fail "panel did not reload on a state change (▲ $n before):
+$(t capture-pane -p -t "$p")
+states: $(t list-panes -a -F '#{pane_id}=#{@agent_state}' | tr '\n' ' ')"
 TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
 [ -n "$mine" ] || fail "panel has no refresh loop"
