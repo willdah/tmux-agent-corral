@@ -585,7 +585,7 @@ label() {
     if [ "$p" = 99 ] || { [ "$k" -ge 8 ] && [ "$d" -lt -1 ]; }; then
       if [ "$i" -lt 6 ]; then c=$LIT; else c=$GOLD; fi
     elif [ "$d" = 0 ]; then c=$GOLD1
-    elif [ "$d" -le 1 ]; then c=$GOLD2
+    elif [ "$d" -ge -1 ] && [ "$d" -le 1 ]; then c=$GOLD2
     else c=$DIM; fi
     out+="$c${t:i:1}"
   done
