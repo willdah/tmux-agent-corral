@@ -559,8 +559,9 @@ key() {
 
 # The summary's title shows whether the panel has focus: dim without it. On
 # gaining it, a light gold shine sweeps the title left to right, three letters
-# a frame, leaving "agent-" bright and "corral" gold behind it, then back to
-# the left and right again (SHINE: its centre, frame by frame). The focus
+# a frame, back to the left and right again (SHINE: its centre, frame by
+# frame). Only that last pass leaves "agent-" bright and "corral" gold
+# behind it; until then the rest of the title stays dim. The focus
 # hooks in agents.tmux ping the docked panel (--ping), which redraws the
 # title from the real focus, so a lost ping or a quick out-and-back (↵ in the
 # dock) leaves it right. The popup is always in front. $AGENTS_STATE/lit
@@ -581,7 +582,7 @@ label() {
   fi
   for (( i = 0; i < ${#t}; i++ )); do
     d=$(( i - p ))
-    if [ "$p" = 99 ] || [ "$d" -lt -1 ] || { [ "$k" -gt 4 ] && [ "$d" -gt 1 ]; }; then
+    if [ "$p" = 99 ] || { [ "$k" -ge 8 ] && [ "$d" -lt -1 ]; }; then
       if [ "$i" -lt 6 ]; then c=$LIT; else c=$GOLD; fi
     elif [ "$d" = 0 ]; then c=$GOLD1
     elif [ "$d" -le 1 ]; then c=$GOLD2
