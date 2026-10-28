@@ -300,6 +300,16 @@ for w in "$w2" "$s1" "$w1"; do "$here/src/agents-dock" follow "$w"; done
 mkdir "$tmp/tick"; echo '1 0 1' >"$tmp/tick/sum"; echo 1 >"$tmp/tick/seen"
 f="$(AGENTS_STATE="$tmp/tick" FZF_INPUT_STATE=hidden FZF_IDLE_TIME_MS=2000 "$here/src/agents" --tick)"
 [ "$f" = "untrack-current+reload-sync($here/src/agents --frame)" ] || fail "a frame tracks a row: $f"
+# Nor does a frame cut short the --list0 reload that shows a change: it waits
+# for it, up to 3s.
+echo 100 >"$tmp/tick/frame"; echo 95 >"$tmp/tick/listing"
+f="$(AGENTS_STATE="$tmp/tick" FZF_INPUT_STATE=hidden FZF_IDLE_TIME_MS=2000 "$here/src/agents" --tick)"
+[ -z "$f" ] || fail "a frame cut into a --list0 reload: $f"
+echo 120 >"$tmp/tick/frame"
+f="$(AGENTS_STATE="$tmp/tick" FZF_INPUT_STATE=hidden FZF_IDLE_TIME_MS=2000 "$here/src/agents" --tick)"
+[ -n "$f" ] || fail "frames stayed held after a --list0 that never finished"
+AGENTS_STATE="$tmp/tick" "$here/src/agents" --list0 >/dev/null
+[ ! -e "$tmp/tick/listing" ] || fail "--list0 left frames held"
 # q after a reload closes it (fzf hung tracking a row with an empty id), with
 # an agent working, so frames redraw under it.
 sleep 1; t wait-for -S agents; sleep 1; t send-keys -t "$p" q

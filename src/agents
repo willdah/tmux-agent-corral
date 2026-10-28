@@ -55,8 +55,9 @@ shopt -s extglob
 # second (faster starves fzf of the keys you press), so it answers here,
 # before the palette below costs it a tmux call.
 tick() {
-  local s="$AGENTS_STATE" frame=0 gen nin nrun seen='' act=''
+  local s="$AGENTS_STATE" frame=0 gen nin nrun seen='' act='' listing=-99
   read -r frame 2>/dev/null <"$s/frame" || true
+  read -r listing 2>/dev/null <"$s/listing" || true
   echo $(( frame + 1 )) >"$s/frame"
   read -r gen nin nrun _ 2>/dev/null <"$s/sum" || gen=0 nin=0 nrun=0
   read -r seen 2>/dev/null <"$s/seen" || true
@@ -66,8 +67,11 @@ tick() {
   if [ "$gen" != "$seen" ]; then echo "$gen" >"$s/seen"; act+="+bg-transform-header($self --header)"; fi
   # The rows hold still for a second after each key: a reload under a key
   # press loses it or moves the cursor. A frame keeps the rows in place, so
-  # it tracks none: fzf takes no keys while it looks for a tracked row.
-  if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ] && [ "${FZF_IDLE_TIME_MS:-1000}" -ge 1000 ]; then
+  # it tracks none: fzf takes no keys while it looks for a tracked row. Nor
+  # does a frame start while --list0 runs (for up to 3s): fzf would end that
+  # reload for this one, and the panel would miss the change it was showing.
+  if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ] && [ "${FZF_IDLE_TIME_MS:-1000}" -ge 1000 ] &&
+     [ $(( frame - ${listing:-0} )) -ge 15 ]; then
     act+="+untrack-current+reload-sync($self --frame)"
   fi
   printf '%s' "${act#+}"
@@ -735,7 +739,9 @@ case "${1:-}" in
   '')          panel ;;
   --watch)     panel watch ;;
   --list)      list ;;
-  --list0)     list | nul ;;
+  --list0)     # tick holds the frames until this is in
+               s="${AGENTS_STATE:-}"; [ -z "$s" ] || { read -r f 2>/dev/null <"$s/frame" || f=0; echo "${f:-0}" >"$s/listing"; }
+               list | nul; [ -z "$s" ] || rm -f "$s/listing" ;;
   --frame)     list cached | nul ;;
   --header)    header ;;
   --rows)      rows | tr "$US" '\t' ;;
