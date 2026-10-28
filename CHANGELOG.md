@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.19.0](https://github.com/willdah/tmux-agent-corral/compare/0.18.0...0.19.0) - 2026-10-28
+
+### Added
+
+- the where step lists the folders in a path as you type it
+
+### Fixed
+
+- a state change shows even while an agent is working
+- keys work while an agent is working
+- ~ shows as ~, not \~, under bash 3.2
+
 ## [0.18.0](https://github.com/willdah/tmux-agent-corral/compare/0.17.0...0.18.0) - 2026-10-28
 
 ### Added

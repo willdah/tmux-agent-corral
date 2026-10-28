@@ -28,7 +28,7 @@
 # session, each in the usual order. The session holding the most urgent row
 # comes first (ties by name), so what needs you still tops the panel. A
 # heading names the session and counts its agents by state. Its id is
-# -<session>: unique for track-current, and no pane, so actions skip it, all but n,
+# -<session>: unique for tracking, and no pane, so actions skip it, all but n,
 # which renames the session.
 #
 # The panel is three boxes: a summary of the agents by state, the filter
@@ -56,8 +56,9 @@ shopt -s extglob
 # second (faster starves fzf of the keys you press), so it answers here,
 # before the palette below costs it a tmux call.
 tick() {
-  local s="$AGENTS_STATE" frame=0 gen nin nrun seen='' act=''
+  local s="$AGENTS_STATE" frame=0 gen nin nrun seen='' act='' listing=-99
   read -r frame 2>/dev/null <"$s/frame" || true
+  read -r listing 2>/dev/null <"$s/listing" || true
   echo $(( frame + 1 )) >"$s/frame"
   read -r gen nin nrun _ 2>/dev/null <"$s/sum" || gen=0 nin=0 nrun=0
   read -r seen 2>/dev/null <"$s/seen" || true
@@ -66,18 +67,16 @@ tick() {
   if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nin" -gt 0 ]; then seen=animating; fi   # only needs you breathes
   if [ "$gen" != "$seen" ]; then echo "$gen" >"$s/seen"; act+="+bg-transform-header($self --header)"; fi
   # A refresh staged in next reorders the rows, so it waits for a second
-  # without keys and out of any field, and tracks the cursor's agent. fzf
-  # drops keys during any reload while it tracks, and track-current lasts
-  # until the cursor moves, so each tracked reload leaves a mark (tracked)
-  # and two ticks on, when it has surely loaded, tracking stops; frames wait
-  # for that. A frame keeps the order, so it needs neither and runs while you
-  # move.
-  if [ -f "$s/tracked.old" ]; then rm -f "$s/tracked.old"; act+="+untrack-current"; fi
-  [ ! -f "$s/tracked" ] || mv "$s/tracked" "$s/tracked.old"
+  # without keys and out of any field, and tracks the cursor's agent. A
+  # frame keeps the rows in place, so it runs while you move and tracks
+  # none: fzf takes no keys while it looks for a tracked row. Nor does a
+  # frame start while --list0 or --apply runs (for up to 3s): fzf would end
+  # that reload for this one, and the panel would miss the change it was
+  # showing.
   if [ -f "$s/next" ] && [ "${FZF_PROMPT:-}" = '⌕ ' ] && [ "${FZF_IDLE_TIME_MS:-1000}" -ge 1000 ]; then
     act+="+track-current+reload-sync($self --apply)"
-  elif [ ! -f "$s/tracked.old" ] && [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ]; then
-    act+="+reload-sync($self --frame)"
+  elif [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ] && [ $(( frame - ${listing:-0} )) -ge 15 ]; then
+    act+="+untrack-current+reload-sync($self --frame)"
   fi
   printf '%s' "${act#+}"
 }
@@ -277,8 +276,8 @@ list() {
   if [ "${1:-}" = cached ]; then rows="$(cat "$AGENTS_STATE/rows")"
   else
     rows="$(rows)"
-    # The panel tracks this reload (see tick), and it is fresher than any staged one.
-    [ -z "${AGENTS_STATE:-}" ] || { : >"$AGENTS_STATE/tracked"; rm -f "$AGENTS_STATE/next"; keep "$rows"; }
+    # Fresher than any staged refresh.
+    [ -z "${AGENTS_STATE:-}" ] || { rm -f "$AGENTS_STATE/next"; keep "$rows"; }
   fi
   now="$(date +%s)"
 
@@ -402,7 +401,7 @@ header() {
 }
 
 # A row id is a pane id; the empty-state row uses "-". (fzf 0.74 hangs
-# tracking a row through a reload when its id field is empty.)
+# tracking a row across a reload when its id field is empty.)
 is_pane() { case "${1:-}" in %*) return 0 ;; esac; return 1; }
 
 # With "stay" (the docked panel), the panel moves to the agent's window in the
@@ -745,10 +744,13 @@ case "${1:-}" in
   '')          panel ;;
   --watch)     panel watch ;;
   --list)      list ;;
-  --list0)     list | nul ;;
+  --list0|--apply)   # tick holds the frames until this is in
+               s="${AGENTS_STATE:-}"; [ -z "$s" ] || { read -r f 2>/dev/null <"$s/frame" || f=0; echo "${f:-0}" >"$s/listing"; }
+               if [ "$1" = --list0 ]; then list | nul
+               else mv "$s/next" "$s/taken" 2>/dev/null && keep "$(cat "$s/taken")"; list cached | nul; fi
+               [ -z "$s" ] || rm -f "$s/listing" ;;
   --frame)     list cached | nul ;;
   --stage)     r="$(rows)" && printf '%s\n' "$r" >"$AGENTS_STATE/next.$$" && mv "$AGENTS_STATE/next.$$" "$AGENTS_STATE/next" ;;
-  --apply)     s="$AGENTS_STATE"; : >"$s/tracked"; mv "$s/next" "$s/taken" 2>/dev/null && keep "$(cat "$s/taken")"; list cached | nul ;;
   --header)    header ;;
   --rows)      rows | tr "$US" '\t' ;;
   --keys)      keymap ;;

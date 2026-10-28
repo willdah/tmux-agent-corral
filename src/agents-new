@@ -8,7 +8,8 @@
 #   where    a directory: the ones the running agents work in (a repo by its
 #            main checkout), the folders in @agents_roots (less any
 #            <repo>-worktrees), or a path you type
-#            (starting with /, ~ or .), repo or not
+#            (starting with /, ~ or .), repo or not; as you type one the
+#            list shows the folders in it, and tab goes into the chosen one
 #   worktree in a git repo, where to run: the checkout itself or one of its
 #            worktrees, or + new worktree: a new branch, made at
 #            <repo>-worktrees/<branch, / as -> from origin's default branch
@@ -43,6 +44,9 @@ here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=src/common.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
+
+# bash 3.2 keeps the \ of a \~ replacement, so ~ goes in through a variable.
+TILDE='~'
 
 # sq TEXT: TEXT quoted for any shell the session might run.
 sq() { local q="'\\''"; printf "'%s'" "${1//\'/$q}"; }
@@ -132,9 +136,36 @@ dirs() {
       done
     done
   } | awk '!seen[$0]++' | while IFS= read -r d; do
-    printf '%s\t%s\n' "$d" "${d/#$HOME/\~}"
+    printf '%s\t%s\n' "$d" "${d/#$HOME/$TILDE}"
   done
 }
+
+# ispath QUERY: whether the where step's QUERY is a path, not a filter.
+ispath() { case "$1" in (/*|'~'*|.*) return 0 ;; (*) return 1 ;; esac; }
+
+# folders QUERY: the where step's choices for what's typed: for a path, the
+# folders in it as typed (dotfolders only after a dot), the folder itself
+# first when it ends in /; else dirs.
+folders() {
+  local q="$1" parent base real d dots=
+  ispath "$q" || { dirs; return; }
+  case "$q" in
+    (*/*) parent="${q%/*}/" base="${q##*/}" ;;
+    (*) [ ! -d "${q/#\~/$HOME}" ] || printf '%s\t%s/\n' "${q/#\~/$HOME}" "$q"; return 0 ;;
+  esac
+  real="${parent/#\~/$HOME}"
+  [ -d "$real" ] || return 0
+  [ -n "$base" ] || printf '%s\t%s\n' "$real" "$parent"
+  case "$base" in (.*) dots=1 ;; esac
+  for d in "$real"*/ ${dots:+"$real".*/}; do
+    case "$d" in (*/./|*/../) continue ;; esac
+    [ -d "$d" ] && printf '%s\t%s/\n' "${d%/}" "$parent${d:${#real}:${#d}-${#real}-1}"
+  done
+  return 0
+}
+
+# tab QUERY ROW: the where step's query after tab: ROW's folder, else as it was.
+tab() { if [ -n "$2" ]; then printf '%s/' "${2%/}"; else printf '%s' "$1"; fi; }
 
 # worktrees MAIN: the worktree step's choices: new, then the checkout and
 # each worktree, by branch and folder.
@@ -187,10 +218,13 @@ ask() {
   cancel() { [ "$stay" = stay ] || exec "$here/agents"; exit 0; }
   note="${DIM}a folder below, or type a path (/, ~ or .)$R"
   while :; do
-    rc=0; out="$(dirs | step 'where › ' "$note" --keep-right)" || rc=$?
+    # The list follows a typed path; tab goes into the chosen folder.
+    rc=0; out="$(dirs | step 'where › ' "$note" --keep-right \
+      --bind "change:reload-sync($here/agents-new --ls {q})" \
+      --bind "tab:transform-query($here/agents-new --tab {q} {2})")" || rc=$?
     [ "$rc" -le 1 ] || cancel
     q="$(sed -n 1p <<<"$out")" sel="$(sed -n 2p <<<"$out" | cut -f1)"
-    case "$q" in (/*|'~'*|.*) dir="${q/#\~/$HOME}" ;; (*) dir="$sel" ;; esac
+    if ispath "$q"; then dir="${sel:-${q/#\~/$HOME}}"; else dir="$sel"; fi
     [ -n "$dir" ] || { note="${AMBER}✗$R pick a folder, or type a path"; continue; }
     dir="$(cd "$dir" 2>/dev/null && pwd -P)" && break
     note="${AMBER}✗$R no such folder: $TEXT$q$R"
@@ -214,7 +248,7 @@ ask() {
   fi
 
   # The folder, its end kept when long: that's the part that tells them apart.
-  shown="${dir/#$HOME/\~}"; [ "${#shown}" -le 48 ] || shown="…${shown:${#shown}-47}"
+  shown="${dir/#$HOME/$TILDE}"; [ "${#shown}" -le 48 ] || shown="…${shown:${#shown}-47}"
   rc=0; out="$(sessions | step 'session › ' "${DIM}the session to add $TEXT$shown$DIM to$R")" || rc=$?
   [ "$rc" = 0 ] || cancel
   sess="$(sed -n 2p <<<"$out" | cut -f1)"; [ "$sess" != + ] || sess=''
@@ -242,6 +276,8 @@ ask() {
 case "${1:-}" in
   ''|stay) ask "${1:-}" ;;
   --dirs) dirs | cut -f1 ;;
+  --ls) folders "${2:-}" ;;
+  --tab) tab "${2:-}" "${3:-}" ;;
   --profiles) profiles ;;
   --*)
     dir='' branch='' agent='' text='' sess=''
