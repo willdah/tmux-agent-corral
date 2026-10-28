@@ -140,28 +140,32 @@ dirs() {
   done
 }
 
-# ls QUERY: the where step's choices for what's typed: for a path, the
+# ispath QUERY: whether the where step's QUERY is a path, not a filter.
+ispath() { case "$1" in (/*|'~'*|.*) return 0 ;; (*) return 1 ;; esac; }
+
+# folders QUERY: the where step's choices for what's typed: for a path, the
 # folders in it as typed (dotfolders only after a dot), the folder itself
 # first when it ends in /; else dirs.
-ls_() {
-  local q="$1" p b d
-  case "$q" in (/*|'~'*|.*) ;; (*) dirs; return ;; esac
+folders() {
+  local q="$1" parent base real d dots=
+  ispath "$q" || { dirs; return; }
   case "$q" in
-    (*/*) p="${q%/*}/" b="${q##*/}" ;;
+    (*/*) parent="${q%/*}/" base="${q##*/}" ;;
     (*) [ ! -d "${q/#\~/$HOME}" ] || printf '%s\t%s/\n' "${q/#\~/$HOME}" "$q"; return 0 ;;
   esac
-  local r="${p/#\~/$HOME}"
-  [ -d "$r" ] || return 0
-  [ -n "$b" ] || printf '%s\t%s\n' "$r" "$p"
-  for d in "$r"*/; do [ -d "$d" ] && printf '%s\t%s/\n' "${d%/}" "$p${d:${#r}:${#d}-${#r}-1}"; done
-  case "$b" in (.*)
-    for d in "$r".*/; do
-      case "$d" in (*/./|*/../) continue ;; esac
-      [ -d "$d" ] && printf '%s\t%s/\n' "${d%/}" "$p${d:${#r}:${#d}-${#r}-1}"
-    done ;;
-  esac
+  real="${parent/#\~/$HOME}"
+  [ -d "$real" ] || return 0
+  [ -n "$base" ] || printf '%s\t%s\n' "$real" "$parent"
+  case "$base" in (.*) dots=1 ;; esac
+  for d in "$real"*/ ${dots:+"$real".*/}; do
+    case "$d" in (*/./|*/../) continue ;; esac
+    [ -d "$d" ] && printf '%s\t%s/\n' "${d%/}" "$parent${d:${#real}:${#d}-${#real}-1}"
+  done
   return 0
 }
+
+# tab QUERY ROW: the where step's query after tab: ROW's folder, else as it was.
+tab() { if [ -n "$2" ]; then printf '%s/' "${2%/}"; else printf '%s' "$1"; fi; }
 
 # worktrees MAIN: the worktree step's choices: new, then the checkout and
 # each worktree, by branch and folder.
@@ -220,7 +224,7 @@ ask() {
       --bind "tab:transform-query($here/agents-new --tab {q} {2})")" || rc=$?
     [ "$rc" -le 1 ] || cancel
     q="$(sed -n 1p <<<"$out")" sel="$(sed -n 2p <<<"$out" | cut -f1)"
-    case "$q" in (/*|'~'*|.*) dir="${sel:-${q/#\~/$HOME}}" ;; (*) dir="$sel" ;; esac
+    if ispath "$q"; then dir="${sel:-${q/#\~/$HOME}}"; else dir="$sel"; fi
     [ -n "$dir" ] || { note="${AMBER}✗$R pick a folder, or type a path"; continue; }
     dir="$(cd "$dir" 2>/dev/null && pwd -P)" && break
     note="${AMBER}✗$R no such folder: $TEXT$q$R"
@@ -272,9 +276,8 @@ ask() {
 case "${1:-}" in
   ''|stay) ask "${1:-}" ;;
   --dirs) dirs | cut -f1 ;;
-  --ls) ls_ "${2:-}" ;;
-  # --tab QUERY ROW: the where step's query after tab: ROW's folder, else as it was.
-  --tab) if [ -n "${3:-}" ]; then printf '%s/' "${3%/}"; else printf '%s' "${2:-}"; fi ;;
+  --ls) folders "${2:-}" ;;
+  --tab) tab "${2:-}" "${3:-}" ;;
   --profiles) profiles ;;
   --*)
     dir='' branch='' agent='' text='' sess=''
