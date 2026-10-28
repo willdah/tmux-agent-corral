@@ -7,6 +7,32 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.18.0](https://github.com/willdah/tmux-agent-corral/compare/0.17.0...0.18.0) - 2026-10-28
+
+### Added
+
+- a three-dot wave for working agents, and a still working bar
+- the title's shine moves four letters a frame
+- the title turns gold only on the shine's last pass
+- the title's shine goes right, back left, and right again
+- the title's gold shine sweeps three letters a frame
+- sage replaces navy at the tail of the title's sweep
+- the title sweeps mist to navy and settles sky
+- the title sweeps cream to coral and settles apricot
+- the title sweeps mauveine to pumpkin and settles orange peel
+- a gold shine sweeps the title on focus, leaving corral gold
+- idle agents show zᶻ
+
+### Changed
+
+- **Breaking:** mission control layout with live animation
+- **Breaking:** fzf 0.73 or newer is required, for every(). --list no
+
+### Fixed
+
+- the title stays dim behind the shine until its last pass
+- working rows hold still while you move through the list
+
 ## [0.17.0](https://github.com/willdah/tmux-agent-corral/compare/0.16.1...0.17.0) - 2026-10-26
 
 ### Added
