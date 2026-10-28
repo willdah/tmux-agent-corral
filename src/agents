@@ -11,7 +11,7 @@
 #
 #   agents            popup panel: Enter jumps to the agent and closes
 #   agents --watch    pinned panel: stays open, Enter shows the agent and keeps focus, p toggles preview
-#   agents --list     the column headings, then the rows, tab-separated (pane id, display, full name)
+#   agents --list     the rows, tab-separated (pane id, display, full name)
 #   agents --list0    the same, NUL-separated, for the panel (fzf --read0)
 #   agents --rows     the data behind the rows, for scripts: one tab-separated
 #                     record per agent in panel order, no headings or colours:
@@ -31,7 +31,14 @@
 # -<session>: unique for --track, and no pane, so actions skip it, all but n,
 # which renames the session.
 #
-# Columns fit the panel's width (fzf's $FZF_COLUMNS), headings included.
+# The panel is three boxes: a summary of the agents by state, the filter
+# (shown only while you use it: / opens it, // or esc closes it) and the list.
+# It animates on fzf's every() timer: needs you breathes while anyone waits,
+# and a working agent's row carries a travelling wave and a shine. Each frame
+# re-shows fzf's cursor, so nothing animates while the filter or a field is
+# open.
+#
+# Columns fit the panel's width (fzf's $FZF_COLUMNS).
 # NO_COLOR turns the colours off.
 set -euo pipefail
 
@@ -39,12 +46,87 @@ self="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE
 
 # shellcheck source=src/common.sh
 . "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
+shopt -s extglob
+
+# The panel keeps its state in $AGENTS_STATE: the rows it last read (rows),
+# their counts (sum: a generation, then the agents needing you, working, done
+# and idle, and when the oldest wait began) and the frame number. An animation
+# frame redraws from those without asking tmux again. --tick runs five times a
+# second (faster starves fzf of the keys you press), so it answers here,
+# before the palette below costs it a tmux call.
+tick() {
+  local s="$AGENTS_STATE" frame=0 gen nin nrun seen='' act=''
+  read -r frame 2>/dev/null <"$s/frame" || true
+  echo $(( frame + 1 )) >"$s/frame"
+  read -r gen nin nrun _ 2>/dev/null <"$s/sum" || gen=0 nin=0 nrun=0
+  read -r seen 2>/dev/null <"$s/seen" || true
+  # The reload last: fzf drops what follows a reload-sync in one transform.
+  if [ -f "$s/label" ] || [ -f "$s/shimmer" ]; then rm -f "$s/label"; act+="+transform-header-label($self --label)"; fi
+  if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nin" -gt 0 ]; then seen=animating; fi   # only needs you breathes
+  if [ "$gen" != "$seen" ]; then echo "$gen" >"$s/seen"; act+="+bg-transform-header($self --header)"; fi
+  # The rows hold still for a second after each key: a reload under a key
+  # press loses it or moves the cursor.
+  if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nrun" -gt 0 ] && [ "${FZF_IDLE_TIME_MS:-1000}" -ge 1000 ]; then
+    act+="+reload-sync($self --frame)"
+  fi
+  printf '%s' "${act#+}"
+}
+[ "${1:-}" = --tick ] && { tick; exit 0; }
 
 # Palette (see common.sh): both greys clear 4.5:1 on a dark terminal, the
 # selected row included; a light theme sets @agent_c_text/dim. FAINT, the
 # group rule, is structure, not text, so the border's grey.
 palette
 B=$'\033[1m' UB=$'\033[22m'   # bold carries the footer's keys; NO_COLOR keeps it
+# A shine's centre and its falloff, over working blue.
+LIT=$'\033[38;5;255m' GLOW=$'\033[38;5;189m' HALO=$'\033[38;5;153m'
+# The title's gold, and the light gold of the shine that sweeps it.
+GOLD=$'\033[38;2;232;196;104m' GOLD1=$'\033[38;2;255;246;214m' GOLD2=$'\033[38;2;246;222;150m'
+[ -z "${NO_COLOR:-}" ] || LIT='' GLOW='' HALO='' GOLD='' GOLD1='' GOLD2=''
+
+# The frame the panel is on; --list, outside it, has none and draws still.
+frame=0
+[ -z "${AGENTS_STATE:-}" ] || read -r frame 2>/dev/null <"$AGENTS_STATE/frame" || true
+
+# A working agent's mark: a braille sine wave three dots wide (two cells, the
+# second half empty) that travels a dot column a frame.
+WAVE=(⠊⠁ ⠔⠁ ⡠⠂ ⣀⠄ ⢄⡀ ⠢⡀ ⠑⠄ ⠉⠂)
+
+# pulse: sets PULSE, the needs-you colour breathing from 45% to full and back
+# every 1.6s (8 frames), in true colour. One of the 16 basic colours has no fixed value
+# to scale, so it swaps faint for bold.
+# shellcheck disable=SC2154   # palette sets ac
+pulse() {
+  local k=$(( frame % 8 )) i=$ac r g b f v=(0 95 135 175 215 255)
+  [ "$k" -le 4 ] || k=$(( 8 - k ))
+  if [ -z "$AMBER" ]; then PULSE=''; return; fi
+  case "$i" in
+    ('#'*) r=$(( 0x${i:1:2} )) g=$(( 0x${i:3:2} )) b=$(( 0x${i:5:2} )) ;;
+    (*) if [ "$i" -ge 232 ]; then r=$(( 8 + 10 * (i - 232) )) g=$r b=$r
+        elif [ "$i" -ge 16 ]; then i=$(( i - 16 )); r=${v[i / 36]} g=${v[i / 6 % 6]} b=${v[i % 6]}
+        elif [ "$k" -lt 2 ]; then PULSE=$'\033[2m'"$AMBER"; return
+        else PULSE=$'\033[1m'"$AMBER"; return; fi ;;
+  esac
+  f=$(( 45 + 55 * k / 4 ))
+  printf -v PULSE '\033[38;2;%d;%d;%dm' $(( r * f / 100 )) $(( g * f / 100 )) $(( b * f / 100 ))
+}
+
+# band <distance>: sets c, the colour a shine gives a cell that far from its
+# centre: lit, glowing, a halo, then the base colour in $base.
+band() {
+  case "${1#-}" in (0) c=$LIT ;; (1) c=$GLOW ;; (2) c=$HALO ;; (*) c=$base ;; esac
+}
+
+# shine <var> <text> <pos>: text in the row's colour with a bright band
+# centred on pos, for a working agent's name.
+shine() {
+  local t="$2" i c last='' out='' base=$TEXT
+  for (( i = 0; i < ${#t}; i++ )); do
+    band $(( i - $3 )); [ "$c" = "$last" ] || { out+=$c; last=$c; }
+    out+="${t:i:1}"
+  done
+  printf -v "$1" '%s%s' "$out" "$R"
+}
 
 # The helpers below write into the variable named by their first argument
 # (printf -v) instead of printing: --list runs on every refresh, and a $( )
@@ -67,7 +149,7 @@ age() {
 # too narrow for it, so state, title and age, which the sort runs on, always
 # show.
 widths() {
-  local fixed=11   # state, gaps and age: everything but title, project and agent
+  local fixed=9   # state mark, gaps and age: everything but title, project and agent
   local rest=$(( cols - fixed - 1 ))   # less the space before the project
   aw=7   # copilot, the longest built-in harness; a longer name gets cut
   if [ $(( rest - aw - 1 )) -ge 40 ]; then rest=$(( rest - aw - 1 )); else aw=0; fi
@@ -148,31 +230,49 @@ rows() {
   else cat; fi
 }
 
-list() {
-  local rows now; rows="$(rows)"; now="$(date +%s)"
-
-  # Width: fzf's columns inside its border, less 4 for padding, pointer and
-  # gutter and one spare for the scrollbar. fzf reports 0 during its start
-  # event, so the first list measures fzf's terminal itself (its width less
-  # the border's 4): not the tmux pane, which under a popup is the pane
-  # beneath it. Status, agent, age and gaps are fixed; the title gets what's
-  # left after the project's third (up to 22 columns), up to 36.
-  local cols="${FZF_COLUMNS:-0}" w=''
+# panel_cols: sets cols, the width a row or the summary may take: fzf's
+# columns less the boxes' borders and padding, the pointer and gutter and a
+# spare for the scrollbar. fzf reports 0 during its start event, so the first
+# list measures fzf's terminal itself: not the tmux pane, which under a popup
+# is the pane beneath it. In the popup the peek takes the right 55%.
+panel_cols() {
+  local w=''
+  cols="${FZF_COLUMNS:-0}"
   if [ "$cols" -le 0 ]; then
     w="$( (stty size </dev/tty) 2>/dev/null || true)"
-    cols=$(( ${w#* } - 4 ))
+    cols=$(( ${w#* } + 0 ))
     [ "$cols" -gt 0 ] || cols=80
   fi
-  cols=$(( cols - 5 ))
+  [ -z "${AGENTS_SIDE:-}" ] || cols=$(( cols * 45 / 100 ))
+  cols=$(( cols - 7 ))
+}
 
-  # The headings: fzf pins the first line (--header-lines), so it's printed
-  # even with no rows. They line up with the rows.
-  local tw pw aw rw cell where='' who=''
+# keep <rows>: the panel's copy of the rows, and their counts, for --tick,
+# --frame and --header. Each lands whole (mv), as a frame may be reading.
+keep() {
+  local s="$AGENTS_STATE" gen=0
+  read -r gen _ 2>/dev/null <"$s/sum" || true
+  printf '%s\n' "$1" >"$s/rows.$$" && mv "$s/rows.$$" "$s/rows"
+  printf '%s\n' "$1" | awk -F"$US" -v g=$(( gen + 1 )) '
+    $1 == "H" || $3 == "" { next }
+    { c[$4]++; t++ }
+    $4 == "input" && (o == "" || $2 < o) { o = $2 }
+    END { print g, c["input"]+0, c["running"]+0, c["done"]+0, t - c["input"] - c["running"] - c["done"], o+0 }' >"$s/sum.$$" &&
+    mv "$s/sum.$$" "$s/sum"
+}
+
+# list [cached]: the rows for fzf; cached draws a frame from the panel's copy.
+list() {
+  local rows now cols
+  if [ "${1:-}" = cached ]; then rows="$(cat "$AGENTS_STATE/rows")"
+  else rows="$(rows)"; [ -z "${AGENTS_STATE:-}" ] || keep "$rows"; fi
+  now="$(date +%s)"
+
+  # Status, agent, age and gaps are fixed; the title gets what's left after
+  # the project's third (up to 22 columns), up to 36.
+  panel_cols
+  local tw pw aw rw cell
   widths
-  [ "$pw" -gt 0 ] && { fit cell "$pw" PROJECT; where=" $cell"; }
-  [ "$aw" -gt 0 ] && { fit cell "$aw" AGENT; who=" $cell"; }
-  fit cell "$tw" SESSION
-  printf -- '-\t%s    %s%s%s   %4s%s\n' "$DIM" "$cell" "$where" "$who" AGE "$R"
 
   if [ -z "$rows" ]; then
     printf -- '-\t%s  no agents yet. Start claude, copilot or pi in any pane.%s\n' "$DIM" "$R"
@@ -184,7 +284,7 @@ list() {
   # The rule keeps two bars; the name is cut with … to fit, and the counts go
   # when even that won't. The floor keeps every cut non-negative on an
   # absurdly narrow panel.
-  local hw=$rw bars s n ns i counts cl gl=(▲ ✓ ○ ●) gc=("$AMBER" "$GREEN" "$DIM" "$BLUE")
+  local hw=$rw bars s n ns i counts cl gl=(▲ ✓ zᶻ ●) gc=("$AMBER" "$GREEN" "$DIM" "$BLUE") ri=0
   [ "$hw" -le "$cols" ] || hw=$cols
   hw=$(( hw - 1 ))
   [ "$hw" -ge 5 ] || hw=5
@@ -196,7 +296,7 @@ list() {
       counts='' cl=0
       for i in 0 1 2 3; do
         [ "${ns[i]}" -gt 0 ] || continue
-        counts+=" ${gc[i]}${gl[i]}${ns[i]}$R"; cl=$(( cl + 2 + ${#ns[i]} ))
+        counts+=" ${gc[i]}${gl[i]}${ns[i]}$R"; cl=$(( cl + 1 + ${#gl[i]} + ${#ns[i]} ))
       done
       n=$(( hw - cl - 3 ))
       [ "$n" -ge 2 ] || { counts='' cl=0 n=$(( hw - 3 )); }
@@ -205,23 +305,86 @@ list() {
       continue
     fi
     case "$st" in
-      input)   glyph='▲' col=$AMBER ;;
-      running) glyph='●' col=$BLUE  ;;
-      done)    glyph='✓' col=$GREEN ;;
-      *)       glyph='○' col=$DIM   ;;
+      input)   glyph='▲ ' col=$AMBER ;;
+      running) glyph='● ' col=$BLUE  ;;
+      done)    glyph='✓ ' col=$GREEN ;;
+      *)       glyph='zᶻ' col=$DIM   ;;
     esac
     [ "$pw" -gt 0 ] && { fit cell "$pw" "$proj"; where=" $DIM$cell$R"; }
     [ "$aw" -gt 0 ] && { fit cell "$aw" "$agent"; who=" $DIM$cell$R"; }
     fit cell "$tw" "$title"; age ago "$since"
-    printf '%s\t %s%s%s  %s%s%s%s%s   %s%4s%s\t%s\n' \
+    if [ "$st" = running ] && [ -n "${AGENTS_STATE:-}" ]; then
+      # Each working row on its own phase, so two never move in step.
+      glyph=${WAVE[(frame + ri * 3) % 8]}
+      shine cell "$cell" $(( (frame + ri * 11) % (tw + 12) - 6 ))
+    else cell="$TEXT$cell$R"; fi
+    ri=$(( ri + 1 ))
+    printf '%s\t %s%s%s %s%s%s %s%4s%s\t%s\n' \
       "$id" \
       "$col" "$glyph" "$R" \
-      "$TEXT" "$cell" "$R" \
+      "$cell" \
       "$where" \
       "$who" \
       "$DIM" "$ago" "$R" \
       "$title"
   done <<<"$rows"
+}
+
+# bar <state> <cells>: sets bar, a run of ━ in the state's colour; needs you
+# breathes ($PULSE).
+bar() {
+  local c
+  case "$1" in (input) c=$PULSE ;; (running) c=$BLUE ;; (done) c=$GREEN ;; (*) c=$FAINT ;; esac
+  printf -v bar '%*s' "$2" ''; bar="$c${bar// /━}$R"
+}
+
+# header: the summary over the list, from the panel's counts. With room, one
+# bar with a segment per state over a line of counts; when that line won't
+# fit, a stack: a line per state, each with its own bar. A state with no
+# agents sits dim, and needs you breathes only while someone waits.
+header() {
+  local gen nin nrun ndone nidle old line vis ago='' ic rc dc all='' k cells seg tot cols e=$'\033'
+  read -r gen nin nrun ndone nidle old 2>/dev/null <"$AGENTS_STATE/sum" || { printf ' '; return; }
+  now="$(date +%s)"; panel_cols; pulse
+  tot=$(( nin + nrun + ndone + nidle ))
+  ic=$DIM rc=$DIM dc=$DIM
+  [ "$nin" -gt 0 ] && { ic=$PULSE; age ago "$old"; }
+  [ "$nrun" -gt 0 ] && rc=$BLUE
+  [ "$ndone" -gt 0 ] && dc=$GREEN
+  printf -v line ' %s▲ %s%s%s need you   %s● %s%s%s working   %s✓ %s%s%s done   %szᶻ %s idle%s' \
+    "$ic" "$B" "$nin" "$UB" "$rc" "$B" "$nrun" "$UB" "$dc" "$B" "$ndone" "$UB" "$DIM" "$nidle" "$R"
+  [ -z "$ago" ] || line+="   ${DIM}oldest wait ${AMBER}${ago}${R}"
+  vis="${line//$e\[+([0-9;])m/}"
+
+  if [ "${#vis}" -le "$cols" ]; then
+    for k in input running done idle; do
+      case $k in (input) cells=$nin ;; (running) cells=$nrun ;; (done) cells=$ndone ;; (*) cells=$nidle ;; esac
+      [ "$cells" -gt 0 ] || continue
+      seg=$(( cells * cols / tot )); [ "$seg" -ge 1 ] || seg=1
+      bar "$k" "$seg"; all+=$bar
+    done
+    [ "$tot" -gt 0 ] && printf ' %s\n' "$all"
+    printf '%s' "$line"
+    return 0
+  fi
+
+  local bw=$(( cols - 22 )) lbl gl c tail
+  [ "$bw" -ge 4 ] || bw=4
+  for k in input running done idle; do
+    case $k in
+      (input)   cells=$nin   lbl='need you' gl='▲ ' c=$ic ;;
+      (running) cells=$nrun  lbl='working'  gl='● ' c=$rc ;;
+      (done)    cells=$ndone lbl='done'     gl='✓ ' c=$dc ;;
+      (*)       cells=$nidle lbl='idle'     gl='zᶻ' c=$DIM ;;
+    esac
+    tail=''; [ "$k" = input ] && [ -n "$ago" ] && tail=" ${AMBER}${ago}${R}"
+    if [ "$cells" -gt 0 ]; then
+      seg=$(( cells * bw / tot )); [ "$seg" -ge 1 ] || seg=1
+      bar "$k" "$seg"
+    else bar="${FAINT}·${R}"; fi
+    printf ' %s%s %-9s%s%s%2s%s  %s%s' "$c" "$gl" "$lbl" "$R" "$B$c" "$cells" "$R" "$bar" "$tail"
+    [ "$k" = idle ] || printf '\n'
+  done
 }
 
 # A row id is a pane id; the empty-state row uses "-". (fzf 0.74 hangs on
@@ -307,6 +470,24 @@ rename_session() {
   tmux rename-session -t "$id" -- "$2" && tmux display -p -t "$id:" '#{session_name}'
 }
 
+# / opens the filter and locks the action keys ($AGENTS_LOCK) so they type;
+# in it, / types a /, and a second / within 0.4s clears and closes it. fzf
+# drops a query change that leaves one transform together with hide-input, so
+# closing takes two: this clears the query, then key shut hides the field. In
+# a field / just types.
+slash() {
+  local s="$AGENTS_STATE" now last=0
+  now="$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000' 2>/dev/null)" || now=$(( $(date +%s) * 1000 ))
+  if [ "${FZF_INPUT_STATE:-hidden}" = hidden ]; then
+    echo "$now" >"$s/slash"
+    printf 'unbind(%s)+change-input-label( filter )+show-input' "$AGENTS_LOCK"; return
+  fi
+  [ "$FZF_PROMPT" = '⌕ ' ] || { printf 'put(/)'; return; }
+  read -r last 2>/dev/null <"$s/slash" || true
+  if [ $(( now - last )) -lt 400 ]; then rm -f "$s/slash"; : >"$s/shut"; printf 'change-query()'
+  else echo "$now" >"$s/slash"; printf 'put(/)'; fi
+}
+
 # m and n turn fzf's own input line into a field for the selected agent, so
 # the panel never leaves the screen. fzf runs key for each step ($AGENTS_* set
 # by panel):
@@ -321,11 +502,15 @@ rename_session() {
 #   key first               on opening grouped, start on the first agent, not its heading
 #   key reload              the refresh, held while a field is open so the
 #                           row being written to stays the selected one
+#   key slash, key shut     / and its second half: see slash
 # Closing the field is chained after key in the bind: fzf drops a clear-query
 # that comes out of a transform, and the query would go on filtering the list.
 key() {
   local did=''
   case "$1:$FZF_PROMPT" in
+    slash:*)              slash; return ;;
+    shut:*)               if [ -f "$AGENTS_STATE/shut" ]; then rm -f "$AGENTS_STATE/shut"; printf 'hide-input+rebind(%s)+search()' "$AGENTS_LOCK"; fi
+                          return 0 ;;
     m:*|n:*)              is_pane "${2:-}" || case "$1:${2:-}" in (n:-?*) ;; (*) return 0 ;; esac
                           if [ "$1" = m ]; then printf '%s' "$AGENTS_M"; else printf '%s' "$AGENTS_N"; fi
                           return ;;
@@ -352,10 +537,10 @@ key() {
                           elif [ -n "$FZF_QUERY" ]; then did="${GREEN}✓${R} renamed to $TEXT$FZF_QUERY"
                           else did="${GREEN}✓${R} name reset"; fi ;;
     enter:*)              printf '%s' "$AGENTS_ENTER"; return ;;
-    esc:'> ')             printf abort; return ;;
-    reload:'> ')          printf 'reload-sync(%s --list0)' "$self"; return ;;
+    esc:'⌕ ')             [ "${FZF_INPUT_STATE:-hidden}" != hidden ] || { printf abort; return; } ;;
+    reload:'⌕ ')          printf 'reload-sync(%s --list0)' "$self"; return ;;
     first:*)              [ "$(tmux show -gv @agents_group 2>/dev/null)" = on ] && printf 'pos(2)'; return 0 ;;
-    restore:'> ')         ;;
+    restore:'⌕ ')         ;;
     restore:*|reload:*)   return ;;
   esac
   if [ -n "$did" ]; then
@@ -365,24 +550,48 @@ key() {
   fi
 }
 
-# The docked panel's title shows whether it has focus: bold blue in brackets,
-# like a lit tab, dim without, spaced so the name never moves. The focus hooks
-# in agents.tmux ping the panel (--ping), which redraws the label from the
-# real focus (--label), so a lost ping or a quick out-and-back (↵ in the dock)
-# leaves it right.
+# The summary's title shows whether the panel has focus: dim without it. On
+# gaining it, a light gold shine sweeps the title left to right, four letters
+# a frame, back to the left and right again (SHINE: its centre, frame by
+# frame). Only that last pass leaves "agent-" bright and "corral" gold
+# behind it; until then the rest of the title stays dim. The focus
+# hooks in agents.tmux ping the docked panel (--ping), which redraws the
+# title from the real focus, so a lost ping or a quick out-and-back (↵ in the
+# dock) leaves it right. The popup is always in front. $AGENTS_STATE/lit
+# marks a sweep played for this focus, shimmer the frame it began on.
+SHINE=(-1 3 7 11 7 3 -1 3 7 11)
 label() {
-  if [ "$(tmux display -p -t "$TMUX_PANE" '#{&&:#{pane_active},#{window_active}}')" = 1 ]; then
-    printf '%s%s[ agent-corral ]%s' "$B" "$BLUE" "$R"
-  else
-    printf '%s  agent-corral  %s' "$DIM" "$R"
+  local s="${AGENTS_STATE:-}" t='agent-corral' i d c k=0 out='' p=99 start
+  if [ -z "${AGENTS_SIDE:-}" ] && [ "$(tmux display -p -t "$TMUX_PANE" '#{&&:#{pane_active},#{window_active}}')" != 1 ]; then
+    [ -z "$s" ] || rm -f "$s/lit" "$s/shimmer"
+    printf ' %s%s%s ' "$DIM" "$t" "$R"; return
   fi
+  if [ -n "$s" ] && [ -n "$GOLD" ]; then
+    [ -f "$s/lit" ] || { : >"$s/lit"; echo "$frame" >"$s/shimmer"; }
+    if read -r start 2>/dev/null <"$s/shimmer"; then
+      k=$(( frame - start ))
+      if [ "$k" -lt ${#SHINE[@]} ]; then p=${SHINE[k]}; else rm -f "$s/shimmer"; fi
+    fi
+  fi
+  for (( i = 0; i < ${#t}; i++ )); do
+    d=$(( i - p ))
+    if [ "$p" = 99 ] || { [ "$k" -ge 6 ] && [ "$d" -lt -1 ]; }; then
+      if [ "$i" -lt 6 ]; then c=$LIT; else c=$GOLD; fi
+    elif [ "$d" = 0 ]; then c=$GOLD1
+    elif [ "$d" -ge -1 ] && [ "$d" -le 1 ]; then c=$GOLD2
+    else c=$DIM; fi
+    out+="$c${t:i:1}"
+  done
+  printf ' %s%s%s%s ' "$B" "$out" "$UB" "$R"
 }
 
+# The ping leaves a mark that the panel's next tick turns into a redraw: fzf
+# drops some actions posted to its port while every() is running.
 ping() {
-  local dock port
+  local dock dir
   dock="$(tmux show -gv @agents_dock 2>/dev/null)" || return 0
-  port="$(tmux display -p -t "$dock" '#{@agents_port}' 2>/dev/null)"
-  [ -n "$port" ] && curl -fs -XPOST "localhost:$port" -d "transform-border-label($self --label)" >/dev/null 2>&1 || true
+  dir="$(tmux display -p -t "$dock" '#{@agents_state}' 2>/dev/null)"
+  [ -z "$dir" ] || [ ! -d "$dir" ] || : >"$dir/label"
 }
 
 # keymap: the panel's action keys, in footer order: action, key, the popup's
@@ -417,20 +626,34 @@ panel() {
   local watch="${1:-}" enter new preview hint_col=2 start=''   # keymap's column of hints
   # The docked panel is narrow, so its key hints are shorter, and fewer.
   if [ "$watch" = watch ]; then
-    start="execute-silent(tmux set -p -t \$TMUX_PANE @agents_port \$FZF_PORT)+transform-border-label($self --label)+"
+    start="execute-silent(tmux set -p -t \$TMUX_PANE @agents_state \$AGENTS_STATE)+"
     enter="execute-silent($self --jump {1} stay)"
     new="execute(${self%/*}/agents-new stay)+reload-sync($self --list0)"
-    preview='down,60%,follow,border-top,hidden'
+    preview='down,40%,follow,border-rounded'
     hint_col=3
   else
+    export AGENTS_SIDE=1
     enter="become($self --jump {1})"
     new="become(${self%/*}/agents-new)"
-    preview='down,65%,follow,border-top'
+    preview='right,55%,follow,border-rounded'
   fi
+  AGENTS_STATE="$(mktemp -d "${TMPDIR:-/tmp}/agent-corral.XXXXXX")"
+  trap 'rm -rf "$AGENTS_STATE"' EXIT
+  # shellcheck disable=SC2154   # palette sets pal: what tmux said
+  export AGENTS_STATE AGENTS_PAL="$pal"
   local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
 
-  # The binds, footer and the lock below all come from keymap.
-  local a k hint footer="$B${TEXT}↵$UB$DIM jump  " lock='' binds=()
+  # The binds, footer and the lock below all come from keymap. The footer's
+  # hints wrap to a second line rather than run off a narrow panel.
+  local a k hint footer='' fl=0 fw lock='' binds=()
+  fw="$( (stty size </dev/tty) 2>/dev/null || true)"; fw=$(( ${fw#* } + 0 - 6 ))
+  [ "$fw" -gt 0 ] || fw=200
+  addhint() {
+    local n=$(( ${#1} + ${#2} + 3 ))
+    if [ "$fl" -gt 0 ] && [ $(( fl + n - 2 )) -gt "$fw" ]; then footer="${footer%  }"$'\n'; fl=0; fi
+    footer+="$B$TEXT$1$UB$DIM $2  "; fl=$(( fl + n ))
+  }
+  addhint ↵ jump; addhint / filter
   while read -r -a k; do
     a="${k[0]}"
     case "$a" in
@@ -448,7 +671,7 @@ panel() {
     esac
     lock+="${k[1]},"
     hint="${k[hint_col]}"
-    [ "$hint" = - ] || footer+="$B$TEXT${k[1]}$UB$DIM $hint  "
+    [ "$hint" = - ] || addhint "${k[1]}" "$hint"
   done < <(keymap)
 
   # Refresh through fzf's own HTTP port: at once when agent-state signals the
@@ -458,11 +681,12 @@ panel() {
   local reload="curl -fs -XPOST localhost:\$FZF_PORT -d 'transform:$self --key reload'"
   local tick="(while sleep 10 && $sweep && $reload; do :; done) >/dev/null 2>&1 & (while tmux wait-for agents && $reload; do :; done) >/dev/null 2>&1 &"
 
-  # While a field is open the action letters and ↑↓ type or stay put, so the
-  # row being written to can't change underneath.
+  # While the filter is open the action keys type. While a field is, ↑↓ stay
+  # put too, so the row being written to can't change underneath.
+  export AGENTS_LOCK="${lock%,}"
   lock+='up,down'
-  local open="unbind($lock)+disable-search+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
-  local close="+clear-query+enable-search+hide-input+change-prompt(> )+rebind($lock)+reload-sync($self --list0)"
+  local open="unbind($lock)+disable-search+change-input-label()+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
+  local close="+clear-query+enable-search+hide-input+change-prompt(⌕ )+change-input-label( filter )+rebind($lock)+reload-sync($self --list0)"
   export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
     AGENTS_M="$open+change-query()+transform-prompt($self --key message {3})" \
     AGENTS_N="$open+transform-query(printf %s {3})+transform-prompt($self --key rename {3})" \
@@ -472,23 +696,28 @@ panel() {
   # shellcheck disable=SC2154   # palette sets the colours
   fzf </dev/null \
     --ansi --read0 --no-input --no-sort --layout=reverse --cycle \
-    --delimiter=$'\t' --with-nth=2 --id-nth=1 --track --header-lines=1 \
-    --listen --bind "start:${start}execute-silent($sweep)+reload-sync($self --list0)+execute-silent:$tick" \
+    --delimiter=$'\t' --with-nth=2 --id-nth=1 --track \
+    --listen --bind "start:${start}transform-header-label($self --label)+execute-silent($sweep)+reload-sync($self --list0)+execute-silent:$tick" \
+    --bind "every(0.2):bg-transform($self --tick)" \
     --bind "load:transform($self --key first)+unbind(load)" \
     --bind "resize:transform($self --key reload)" \
-    --border=rounded --border-label=' agent-corral ' --border-label-pos=3 \
-    --info=hidden --pointer='▌' --gutter=' ' \
+    --header=' ' --header-first --header-border=rounded --header-label=' agent-corral ' --header-label-pos=0 \
+    --input-border=rounded --input-label=' filter ' --input-label-pos=3 --prompt='⌕ ' \
+    --list-border=rounded --list-label=' agents ' --list-label-pos=3 \
+    --info=hidden --pointer='▌' --gutter=' ' --highlight-line \
     --footer="${footer%  }" \
-    --footer-border=line \
+    --footer-border=none \
     --preview='case {1} in %*) tmux capture-pane -pe -J -t {1} -S -80 | awk "{l[NR]=\$0} NF{n=NR} END{for(i=1;i<=n;i++)print l[i]}" ;; esac' \
     --preview-window="$preview" \
     --bind="focus:transform-preview-label:$label" \
     --color="fg:$tc,bg:$bgc,fg+:255,bg+:236,hl:$bc,hl+:$bc" \
     --color="border:$fc,label:$bc,preview-border:$fc,preview-label:$dc,footer-border:$fc" \
+    --color="list-border:$fc,header-border:$fc,input-border:$fc,list-label:$dc,input-label:$dc" \
     --color="pointer:$bc,marker:$bc,gutter:-1,info:$dc,header:$tc" \
     --color="prompt:$bc,query:255" \
     --bind="enter:transform($self --key enter {1} {3})$close" \
     --bind="esc:transform($self --key esc)$close" \
+    --bind="/:transform($self --key slash)+transform($self --key shut)" \
     ${binds[@]+"${binds[@]}"} \
     >/dev/null || true
   # Wake this panel's waiter so it sees fzf gone and exits now, not on the
@@ -496,13 +725,18 @@ panel() {
   tmux wait-for -S agents 2>/dev/null || true
 }
 
+# nul: --list as the panel reads it. Every group heading but the first gets
+# a blank line above it, inside its own item, so the gap before each group is
+# no row j and k have to stop on.
+nul() { awk 'NR > 1 && /^-[^\t]/ { sub(/\t/, "\t\037") } 1' | tr '\n\037' '\0\n'; }
+
 case "${1:-}" in
   '')          panel ;;
   --watch)     panel watch ;;
   --list)      list ;;
-  # Every group heading gets a blank line above it, inside its own item, so
-  # the gap before each group is no row j and k have to stop on.
-  --list0)     list | awk '/^-[^\t]/ { sub(/\t/, "\t\037") } 1' | tr '\n\037' '\0\n' ;;
+  --list0)     list | nul ;;
+  --frame)     list cached | nul ;;
+  --header)    header ;;
   --rows)      rows | tr "$US" '\t' ;;
   --keys)      keymap ;;
   --label)     label ;;

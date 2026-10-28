@@ -85,21 +85,21 @@ order="$("$here/src/agents" --rows | cut -f3 | tr '\n' ' ')"
 case "$order" in "-work $b $c $a -side $d "|"-side $d -work $b $c $a ") ;; *) fail "grouped order: $order" ;; esac
 r="$("$here/src/agents" --rows | awk -F'\t' '$3 == "-work" { print NF, $1, $4, $8 }')"
 [ "$r" = '8 H 1 1 0 1 work' ] || fail "heading record: $r"
-h="$(NO_COLOR=1 FZF_COLUMNS=40 "$here/src/agents" --list | grep '^-work' | cut -f2)"
+h="$(NO_COLOR=1 FZF_COLUMNS=42 "$here/src/agents" --list | grep '^-work' | cut -f2)"
 [ "$h" = $' \e[1mwork\e[22m ──────────────────── ▲1 ✓1 ●1' ] || fail "group heading: $h"   # bold stays under NO_COLOR
-h="$(NO_COLOR=1 FZF_COLUMNS=60 "$here/src/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
+h="$(NO_COLOR=1 FZF_COLUMNS=64 "$here/src/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
 [ "${#h}" -le 57 ] || fail "group heading wider than the 64-column dock: $h"
-NO_COLOR=1 FZF_COLUMNS=10 "$here/src/agents" --list >/dev/null || fail "grouped list failed on a narrow panel"
-# The panel's list: NUL-separated, a blank line opening every heading.
+NO_COLOR=1 FZF_COLUMNS=12 "$here/src/agents" --list >/dev/null || fail "grouped list failed on a narrow panel"
+# The panel's list: NUL-separated, a blank line opening every heading but the first.
 gaps="$("$here/src/agents" --list0 | tr '\0' '\036' | tr -cd '\036\n' | tr '\036' .)"
-case "$gaps" in $'.\n....\n..'|$'.\n..\n....') ;; *) fail "group gaps: $(printf %q "$gaps")" ;; esac
+case "$gaps" in $'....\n..'|$'..\n....') ;; *) fail "group gaps: $(printf %q "$gaps")" ;; esac
 # A heading is no pane: every action leaves it alone.
 for f in --jump --approve --interrupt --rename; do
   "$here/src/agents" "$f" -work </dev/null >/dev/null || fail "$f on a heading"
 done
 NO_COLOR=1 "$here/src/agents" --list | grep "^$a" | grep -q '●  smokeproj' || fail "grouped untitled row"
 [ "$("$here/src/agents" --list | grep '^-work' | cut -f3)" = work ] || fail "heading's hidden name field"
-h="$(NO_COLOR=1 FZF_COLUMNS=12 "$here/src/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
+h="$(NO_COLOR=1 FZF_COLUMNS=14 "$here/src/agents" --list | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')"
 [ "${#h}" -le 7 ] || fail "group heading wider than the panel: $h"
 t set -g @agents_group on; "$here/src/agents" --group
 [ "$(t show -gv @agents_group)" = off ] || fail "--group did not turn grouping off"
@@ -136,18 +136,18 @@ t set -g @agent_c_border '#102030' \; set -g @agents_group on   # the group rule
 "$here/src/agents" --list | grep -F $'\033[38;2;16;32;48m' >/dev/null || fail "@agent_c_border not used"
 t set -g @agents_group off
 t set -g @agent_c_input colour214 \; set -gu @agent_c_border \; source-file "$here/agents.tmux"
-h="$(NO_COLOR=1 "$here/src/agents" --list | sed -n 1p)"; case "$h" in "-	    SESSION "*" PROJECT "*" AGE") ;; *) fail "column headings: $h" ;; esac
-NO_COLOR=1 FZF_COLUMNS=40 "$here/src/agents" --list >/dev/null || fail "narrow list failed"
-NO_COLOR=1 FZF_COLUMNS=40 "$here/src/agents" --list | sed -n 1p | grep -q PROJECT && fail "narrow headings kept the project"
+# The summary box heads the panel, so the list is rows only.
+NO_COLOR=1 "$here/src/agents" --list | sed -n 1p | grep -q '^%' || fail "list opens with something other than a row"
+NO_COLOR=1 FZF_COLUMNS=42 "$here/src/agents" --list >/dev/null || fail "narrow list failed"
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
   [ "${#row}" -le 57 ] || fail "row wider than the 64-column dock: $row"
-done < <(FZF_COLUMNS=60 "$here/src/agents" --list)
+done < <(FZF_COLUMNS=64 "$here/src/agents" --list)
 while IFS=$'\t' read -r _ row _; do
   row="$(printf '%s' "$row" | sed $'s/\033\\[[0-9;]*m//g')"
   case "$row" in *smokeproj*|*PROJECT*) fail "narrow row kept the project: $row" ;; esac
   [ "${#row}" -le 35 ] || fail "row wider than a 42-column panel: $row"
-done < <(FZF_COLUMNS=40 "$here/src/agents" --list)
+done < <(FZF_COLUMNS=42 "$here/src/agents" --list)
 "$here/src/agents" --rename "$b" 'Login → OAuth'
 "$here/src/agents" --list | grep "^$b" | grep -q 'mLogin → OAuth ' || fail "rename not shown"
 "$here/src/agents" --rename "$b"
@@ -158,9 +158,9 @@ done < <(FZF_COLUMNS=40 "$here/src/agents" --list)
 k() { FZF_PROMPT="$1" FZF_QUERY="${2:-}" AGENTS_ENTER=jump AGENTS_FOOTER=keys \
   AGENTS_M=open-m AGENTS_N=open-n AGENTS_D=open-d "$here/src/agents" --key "${@:3}"; }
 shown="$("$here/src/agents" --list | grep "^$b" | cut -f3)"; [ "$shown" = "Fix login" ] || fail "hidden name field: $shown"
-[ "$(k '> ' '' m "$b")" = open-m ] && [ "$(k '> ' '' n "$b")" = open-n ] || fail "m/n did not open on an agent"
-[ -z "$(k '> ' '' m -work)" ] || fail "m opened on a heading"
-[ "$(k '> ' '' n -work)" = open-n ] || fail "n did not open on a heading"
+[ "$(k '⌕ ' '' m "$b")" = open-m ] && [ "$(k '⌕ ' '' n "$b")" = open-n ] || fail "m/n did not open on an agent"
+[ -z "$(k '⌕ ' '' m -work)" ] || fail "m opened on a heading"
+[ "$(k '⌕ ' '' n -work)" = open-n ] || fail "n did not open on a heading"
 # n on a heading renames its tmux session; it can't go nameless or take a name in use.
 t new-session -d -s tmp 'sleep 600'
 [ "$(k 'rename tmp › ' tmp enter -tmp tmp)" = change-footer:keys ] || fail "untouched session rename did something"
@@ -171,7 +171,7 @@ t has-session -t =tmp2 || fail "session not renamed"
 k 'rename tmp › ' x enter -tmp tmp | grep -q 'not renamed' || fail "rename of a gone session claimed success"
 t has-session -t =x 2>/dev/null && fail "rename of a gone session renamed another"
 t kill-session -t =tmp2
-k '> ' '' message "$(printf '%030d' 0)" | grep -q '^message to 0\{23\}… › $' || fail "long name not cut in the prompt"
+k '⌕ ' '' message "$(printf '%030d' 0)" | grep -q '^message to 0\{23\}… › $' || fail "long name not cut in the prompt"
 [ "$(k 'rename X › ' '' rename X)" = 'rename X › ' ] || fail "rename prompt"
 [ "$(k 'rename Fix login › ' 'Fix login' enter "$b" 'Fix login')" = change-footer:keys ] || fail "untouched rename did something"
 [ -z "$(t show -pv -t "$b" @agent_name 2>/dev/null)" ] || fail "untouched rename froze the title"
@@ -187,18 +187,29 @@ t kill-pane -t "$mp"
 k 'message to cat › ' hi enter "$mp" cat | grep -q 'not sent: .*cat.* is gone' || fail "message to a gone pane claimed success"
 k 'rename cat › ' x enter "$mp" cat | grep -q 'not renamed' || fail "rename of a gone pane claimed success"
 # d asks in the footer, on an agent's row only; ↵ kills the pane, esc keeps it.
-[ "$(k '> ' '' d "$b")" = open-d ] && [ -z "$(k '> ' '' d -work)" ] || fail "d opened on a heading, or not on an agent"
-k '> ' '' kill "$(printf '%030d' 0)" | grep -q 'kill 0\{23\}…?' || fail "kill question"
+[ "$(k '⌕ ' '' d "$b")" = open-d ] && [ -z "$(k '⌕ ' '' d -work)" ] || fail "d opened on a heading, or not on an agent"
+k '⌕ ' '' kill "$(printf '%030d' 0)" | grep -q 'kill 0\{23\}…?' || fail "kill question"
 alive() { t list-panes -a -F '#{pane_id}' | grep -qx "$1"; }
 kp="$(t new-window -d -P -F '#{pane_id}' -t side: 'sleep 600')"
 [ "$(k 'kill › ' '' esc)" = change-footer:keys ] && alive "$kp" || fail "esc on kill closed the panel or the pane"
 k 'kill › ' '' enter "$kp" sleeper | grep -q 'killed .*sleeper' || fail "kill footer"
 alive "$kp" && fail "pane not killed"
 k 'kill › ' '' enter "$kp" sleeper | grep -q 'not killed: .*sleeper.* is gone' || fail "kill of a gone pane claimed success"
-[ "$(k '> ' '' enter "$b")" = jump ] && [ "$(k '> ' '' esc)" = abort ] || fail "↵/esc outside a field"
+[ "$(k '⌕ ' '' enter "$b")" = jump ] && [ "$(k '⌕ ' '' esc)" = abort ] || fail "↵/esc outside a field"
+[ "$(FZF_INPUT_STATE=enabled k '⌕ ' do esc)" = change-footer:keys ] || fail "esc in the filter closed the panel"
 [ "$(k 'message to X › ' '' esc)" = change-footer:keys ] || fail "esc in a field closed the panel"
-[ "$(k '> ' '' reload)" = "reload-sync($here/src/agents --list0)" ] || fail "reload outside a field"
+[ "$(k '⌕ ' '' reload)" = "reload-sync($here/src/agents --list0)" ] || fail "reload outside a field"
 [ -z "$(k 'rename X › ' '' reload)$(k 'rename X › ' '' restore)" ] || fail "reload/restore touched an open field"
+# / opens the filter, locking the action keys; a quick second / clears it,
+# then key shut closes it, once. A slow /, or one in a field, types.
+mkdir "$tmp/st"
+ks() { AGENTS_STATE="$tmp/st" AGENTS_LOCK=y,x FZF_INPUT_STATE="$1" FZF_PROMPT="$2" "$here/src/agents" --key "${@:3}"; }
+[ "$(ks hidden '⌕ ' slash)" = 'unbind(y,x)+change-input-label( filter )+show-input' ] || fail "/ did not open the filter"
+[ "$(ks enabled '⌕ ' slash)" = 'change-query()' ] || fail "// did not clear the filter"
+[ "$(ks enabled '⌕ ' shut)" = 'hide-input+rebind(y,x)+search()' ] || fail "// did not close the filter"
+[ -z "$(ks hidden '⌕ ' shut)" ] || fail "the filter closed twice"
+sleep 0.5; [ "$(ks enabled '⌕ ' slash)" = 'put(/)' ] || fail "a slow / did not type"
+[ "$(ks enabled 'message to X › ' slash)" = 'put(/)' ] || fail "/ in a field did not type"
 # Other harnesses: the name shows, the title they give themselves doesn't.
 TMUX_PANE=$c "$here/src/agent-state" running copilot </dev/null
 t select-pane -t "$c" -T 'GitHub Copilot'
@@ -213,16 +224,12 @@ wide="$(L 200)" || fail "wide list failed"
 col() { printf '%s\n' "$wide" | grep "^$1" | cut -f2 | awk -v s=" $2 " '{print index($0, s)}'; }
 [ "$(col "$c" pi)" -gt 0 ] && [ "$(col "$c" pi)" = "$(col "$a" claude)" ] ||
   fail "agent column moved: $(col "$c" pi) vs $(col "$a" claude)"
-h="$(printf '%s\n' "$wide" | sed -n 1p | cut -f2)"
-[ "$h" = "$(printf '    %-36s %-22s %-7s   %4s' SESSION PROJECT AGENT AGE)" ] || fail "wide headings: $h"
-L 64 | sed -n 1p | grep -q AGENT && fail "agent column on a 64-column panel"
-L 65 | sed -n 1p | grep -q AGENT || fail "no agent column on a 65-column panel"
-h="$(L 60 | sed -n 1p)"
-case "$h" in *PROJECT*AGE*) ;; *) fail "dock headings lost the project: $h" ;; esac
-case "$h" in *AGENT*) fail "dock headings kept the agent over the project: $h" ;; esac
+L 64 | grep "^$a" | grep -q ' claude ' && fail "agent column in the 64-column dock"
+L 65 | grep "^$a" | grep -q ' claude ' || fail "no agent column on a 65-column panel"
+L 64 | grep "^$a" | grep -q smokeproj || fail "the dock lost the project column"
 # A group heading is as wide as the rows, not the panel.
 t set -g @agents_group on
-for W in 60 200; do
+for W in 64 200; do
   out="$(L "$W")"
   h="$(printf '%s\n' "$out" | grep '^-work' | cut -f2 | sed $'s/\e\\[[0-9]*m//g')" r="$(printf '%s\n' "$out" | grep "^$a" | cut -f2)"
   [ "${#h}" = "${#r}" ] || fail "heading ${#h} wide, rows ${#r}, at $W"
@@ -298,22 +305,26 @@ mine="$(comm -13 <(printf '%s\n' "$before") <(waiters))"
 "$here/src/agents-dock" toggle "$w1"; sleep 0.5
 gone undocking
 
-# The docked panel's title is marked while it has focus and plain once it
-# goes. The focus hooks need a client, so ping by hand.
+# The docked panel's title, atop the summary, is bold while it has focus and
+# plain once it goes. The focus hooks need a client, so ping by hand.
 t select-window -t "$w1"; "$here/src/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"; sleep 1.5
-title() { t capture-pane -p -t "$p" | sed -n 1p; }
-title | grep -q '\[ agent-corral \]' || fail "focused panel's title not marked: $(title)"
+title() { t capture-pane -ep -t "$p" | sed -n 1p; }
+lit() { title | grep -q $'\e\\[1m'; }   # only a lit title is bold on that line
+lit || fail "focused panel's title not marked: $(title)"
+# The ping marks it; the panel's next tick (0.2s) redraws it.
 t last-pane -t "$w1"; "$here/src/agents" --ping; sleep 0.5
-title | grep -q '─  agent-corral  ─' || fail "unfocused panel's title still marked: $(title)"
+lit && fail "unfocused panel's title still marked: $(title)"
 t select-pane -t "$p"; "$here/src/agents" --ping; sleep 0.5
-title | grep -q '\[ agent-corral \]' || fail "refocused panel's title not marked: $(title)"
+lit || fail "refocused panel's title not marked: $(title)"
+# The summary counts the agents; the list under it shows them.
+t capture-pane -p -t "$p" | grep -q 'need you' || fail "no summary in the docked panel: $(t capture-pane -p -t "$p")"
 "$here/src/agents-dock" toggle "$w1"; sleep 0.5
 
 # @agents_panel_key_<action> moves a panel key, footer hint and all; empty
 # unbinds it.
 t set -g @agents_panel_key_preview P \; set -g @agents_panel_key_kill '' \; set -g @agents_panel_key_group G
 "$here/src/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"; sleep 1.5
-foot="$(t capture-pane -p -t "$p" | tail -3)"
+foot="$(t capture-pane -p -t "$p")"   # the hints sit above the peek
 grep -q 'P peek' <<<"$foot" || fail "moved key not in the footer: $foot"
 grep -q 'kill' <<<"$foot" && fail "unbound key still in the footer: $foot"
 grp="$(t show -gv @agents_group)"
@@ -581,9 +592,7 @@ t set -gu default-shell
 # No agents left: the panel says so instead of going blank.
 for p in $a $b $d; do TMUX_PANE=$p "$here/src/agent-state" clear </dev/null; done
 "$here/src/agents" --list | grep -q 'no agents yet' || fail "empty state"
-# fzf pins the first line, so the headings must still lead or the empty row
-# becomes the header.
-[ "$("$here/src/agents" --list | sed -n 1p | grep -c SESSION)$("$here/src/agents" --list | wc -l | tr -d ' ')" = 12 ] || fail "empty state lost its headings"
+[ "$("$here/src/agents" --list | wc -l | tr -d ' ')" = 1 ] || fail "empty state is not one row"
 NO_COLOR=1 "$here/src/agents" --list | grep -q $'\033' && fail "NO_COLOR left colour codes in the empty state"
 
 # The prefix keys: @agents_key and @agents_key_dock, set before agents.tmux
