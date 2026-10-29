@@ -13,8 +13,9 @@
 set -euo pipefail
 
 # Piped in, there is no clone and so no common.sh yet: the bootstrap needs its
-# own die. main sources the rest.
+# own die and ok. main sources the rest.
 die() { printf '\033[1;31mfail\033[0m %s\n' "$*" >&2; exit 1; }
+ok()  { printf '\033[1;32m ok \033[0m %s\n' "$*" >&2; }
 
 repo="https://github.com/willdah/tmux-agent-corral.git"
 dest="$HOME/.config/tmux/agents"
