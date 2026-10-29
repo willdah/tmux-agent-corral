@@ -70,7 +70,7 @@ Inside the panel:
 | `m` | type a message to it, right in the panel (↵ sends, esc cancels) |
 | `n` | give it a name, starting from the one it shows (empty resets to the agent's own title) |
 | `x` | interrupt: sends Escape (C-c to Copilot), and only to an agent that is working |
-| `d` | kill its pane, once you confirm with ↵ (esc cancels); the last pane takes its window, the last window its session |
+| `d` | kill its pane, once you confirm with ↵ (esc cancels); the last pane takes its window, the last window its session. If the agent was in a git worktree that has no changes, no unpushed commits and no other pane in it, a second ↵ removes the worktree too (its branch stays) |
 | `c` | start a new agent in a window of its own: pick a folder, a worktree if it's a git repo, the session to add it to, the agent, and a first prompt or none (see [Start a new agent](docs/new-agents.md)); not in the docked panel's key hints, but works there |
 | `g` | group by tmux session (the session with the most urgent agent first, each heading counting its agents by state); not in the docked panel's key hints, but works there |
 | `p` | toggle the live preview of the agent's screen |

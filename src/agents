@@ -64,6 +64,8 @@ tick() {
   read -r seen 2>/dev/null <"$s/seen" || true
   # The reload last: fzf drops what follows a reload-sync in one transform.
   if [ -f "$s/label" ] || [ -f "$s/shimmer" ]; then rm -f "$s/label"; act+="+transform-header-label($self --label)"; fi
+  # A kill's worktree question (see key), once the kill's own field is closed.
+  if [ -f "$s/worktree" ] && [ "${FZF_PROMPT:-}" = '⌕ ' ]; then mv -f "$s/worktree" "$s/ask"; act+="+$AGENTS_W"; fi
   if [ "${FZF_INPUT_STATE:-}" = hidden ] && [ "$nin" -gt 0 ]; then seen=animating; fi   # only needs you breathes
   if [ "$gen" != "$seen" ]; then echo "$gen" >"$s/seen"; act+="+bg-transform-header($self --header)"; fi
   # A refresh staged in next reorders the rows, so it waits for a second
@@ -471,6 +473,25 @@ kill_pane() {
   tmux kill-pane -t "$1"
 }
 
+# worktree DIR: when DIR is in a linked git worktree, prints its top folder,
+# and succeeds when removing it loses nothing: no changes, no untracked files,
+# no commit that is on no remote, and no pane still in it. Else prints why it
+# stays, or nothing when DIR is in no linked worktree.
+worktree() {
+  local top u p
+  top="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || return 1
+  [ "$(git -C "$top" rev-parse --path-format=absolute --git-dir)" != \
+    "$(git -C "$top" rev-parse --path-format=absolute --git-common-dir)" ] || return 1
+  [ -z "$(git -C "$top" status --porcelain 2>/dev/null)" ] || { echo 'it has changes'; return 1; }
+  # rev-list fails on a branch with no commits: that stays too.
+  u="$(git -C "$top" rev-list -1 HEAD --not --remotes 2>/dev/null)" && [ -z "$u" ] ||
+    { echo 'it has unpushed commits'; return 1; }
+  while read -r p; do
+    case "$p/" in "$top/"*) echo 'a pane is still in it'; return 1 ;; esac
+  done < <(tmux list-panes -a -F '#{pane_current_path}')
+  echo "$top"
+}
+
 # rename_session SESSION NAME: prints the name tmux took (before 3.6 or so
 # it swaps : and . for _). A session can't go nameless, so an empty name fails, as do a taken
 # one and a gone session, with tmux's reason on stderr.
@@ -537,8 +558,25 @@ key() {
     'enter:message to '*) if [ -z "$FZF_QUERY" ]; then :
                           elif message "$2" "$FZF_QUERY" 2>/dev/null; then did="${GREEN}✓${R} sent to $TEXT$3"
                           else did="${AMBER}✗${R} not sent: $TEXT$3$R is gone"; fi ;;
-    'enter:kill'*)        if kill_pane "$2" 2>/dev/null; then did="${GREEN}✓${R} killed $TEXT$3"
+    'enter:kill'*)        local dir wt; dir="$(tmux display -p -t "${2:-}" '#{pane_current_path}' 2>/dev/null)"
+                          if kill_pane "$2" 2>/dev/null; then did="${GREEN}✓${R} killed $TEXT$3"
+                            # A worktree that loses nothing gets a second question, which the
+                            # tick asks: it has to land after the bind's close. One that would says why it stays.
+                            if wt="$(worktree "$dir")"; then printf '%s\n' "$wt" "$3" >"$AGENTS_STATE/worktree"
+                            elif [ -n "$wt" ]; then did+="$R$DIM; its worktree stays: $wt"; fi
                           else did="${AMBER}✗${R} not killed: $TEXT$3$R is gone"; fi ;;
+    remove:*)             local wt n; { read -r wt; read -r n; } 2>/dev/null <"$AGENTS_STATE/ask" || return 0
+                          [ "${#n}" -le 24 ] || n="${n:0:23}…"
+                          printf '%s✓%s killed %s%s  %sremove its worktree %s?%s  %s↵%s yes  %sesc%s no%s' \
+                            "$GREEN" "$R" "$TEXT" "$n" "$R$TEXT" "${wt##*/}" "$R" "$B$TEXT" "$UB$DIM" "$B$TEXT" "$UB$DIM" "$R"
+                          return ;;
+    'enter:remove'*)      local wt out; read -r wt 2>/dev/null <"$AGENTS_STATE/ask" || wt=''
+                          rm -f "$AGENTS_STATE/ask"
+                          # Asked a moment ago: check again, git refuses a dirty one too.
+                          if [ -z "$wt" ]; then :
+                          elif ! out="$(worktree "$wt")"; then did="${AMBER}✗${R} worktree kept: $TEXT${out:-it is gone}"
+                          elif out="$(git -C "$wt" worktree remove "$wt" 2>&1)"; then did="${GREEN}✓${R} removed $TEXT${wt##*/}"
+                          else did="${AMBER}✗${R} not removed: $TEXT${out##*$'\n'}"; fi ;;
     'enter:rename '*)     local out
                           if [ "$FZF_QUERY" = "$3" ]; then :
                           elif ! is_pane "$2"; then
@@ -701,7 +739,8 @@ panel() {
   export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
     AGENTS_M="$open+change-query()+transform-prompt($self --key message {3})" \
     AGENTS_N="$open+transform-query(printf %s {3})+transform-prompt($self --key rename {3})" \
-    AGENTS_D="unbind($lock)+disable-search+change-prompt(kill › )+transform-footer($self --key kill {3})"
+    AGENTS_D="unbind($lock)+disable-search+change-prompt(kill › )+transform-footer($self --key kill {3})" \
+    AGENTS_W="unbind($lock)+disable-search+change-prompt(remove › )+transform-footer($self --key remove)"
 
   # The first list loads through reload so it, too, sees $FZF_COLUMNS.
   # shellcheck disable=SC2154   # palette sets the colours
