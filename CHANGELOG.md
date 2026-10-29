@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.21.2](https://github.com/willdah/tmux-agent-corral/compare/0.21.1...0.21.2) - 2026-10-29
+
+### Fixed
+
+- keep the panel when it jumps out of a window it fills alone
+
 ## [0.21.1](https://github.com/willdah/tmux-agent-corral/compare/0.21.0...0.21.1) - 2026-10-29
 
 ### Fixed
