@@ -195,6 +195,33 @@ kp="$(t new-window -d -P -F '#{pane_id}' -t side: 'sleep 600')"
 k 'kill › ' '' enter "$kp" sleeper | grep -q 'killed .*sleeper' || fail "kill footer"
 alive "$kp" && fail "pane not killed"
 k 'kill › ' '' enter "$kp" sleeper | grep -q 'not killed: .*sleeper.* is gone' || fail "kill of a gone pane claimed success"
+# Killing an agent in a linked worktree that loses nothing asks to remove it;
+# one with changes, unpushed commits or another pane in it stays, saying why.
+gk() { git -C "$1" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "${@:2}" >/dev/null 2>&1; }
+kt="$tmp/kw"; mkdir "$kt"; git init -q --bare "$kt/remote.git"; git init -q "$kt/repo"
+gk "$kt/repo" commit -q --allow-empty -m one && gk "$kt/repo" remote add origin "$kt/remote.git" &&
+  gk "$kt/repo" push -q origin HEAD && gk "$kt/repo" fetch -q origin && gk "$kt/repo" worktree add -q -b wt "$kt/repo-wt" || fail "worktree setup"
+wt="$(cd -P "$kt/repo-wt" && pwd)"; mkdir "$kt/st"
+kw() { AGENTS_STATE="$kt/st" k "$@"; }
+wp() { t new-window -d -P -F '#{pane_id}' -t side: -c "$wt" 'sleep 600'; }
+p1="$(wp)"; p2="$(wp)"
+kw 'kill › ' '' enter "$p1" sleeper | grep -q 'worktree stays: a pane is still in it' || fail "worktree in use offered for removal"
+touch "$wt/new"
+kw 'kill › ' '' enter "$p2" sleeper | grep -q 'worktree stays: it has changes' || fail "dirty worktree offered for removal"
+rm "$wt/new"; gk "$wt" commit -q --allow-empty -m two; p1="$(wp)"
+kw 'kill › ' '' enter "$p1" sleeper | grep -q 'worktree stays: it has unpushed commits' || fail "unpushed worktree offered for removal"
+gk "$wt" push -q origin wt; p1="$(wp)"
+kw 'kill › ' '' enter "$p1" sleeper | grep -q 'killed .*sleeper' && [ -f "$kt/st/worktree" ] || fail "clean worktree not offered for removal"
+# The tick asks once the kill's field has closed, and only once.
+[ -z "$(AGENTS_W=ask-w FZF_PROMPT='kill › ' AGENTS_STATE="$kt/st" "$here/src/agents" --tick | grep ask-w)" ] || fail "tick asked inside the kill field"
+AGENTS_W=ask-w FZF_PROMPT='⌕ ' AGENTS_STATE="$kt/st" "$here/src/agents" --tick | grep -q ask-w || fail "tick did not ask"
+[ -z "$(AGENTS_W=ask-w FZF_PROMPT='⌕ ' AGENTS_STATE="$kt/st" "$here/src/agents" --tick | grep ask-w)" ] || fail "tick asked twice"
+kw '⌕ ' '' remove | grep -q 'remove its worktree repo-wt?' || fail "remove question"
+kw 'remove › ' '' enter | grep -q 'removed .*repo-wt' && [ ! -e "$wt" ] || fail "worktree not removed"
+git -C "$kt/repo" branch --list wt | grep -q wt || fail "removing the worktree took its branch"
+[ "$(kw 'remove › ' '' enter)" = change-footer:keys ] || fail "remove with nothing asked did something"
+k 'kill › ' '' enter "$(t new-window -d -P -F '#{pane_id}' -t side: -c "$kt/repo" 'sleep 600')" sleeper | grep -q 'stays' &&
+  fail "main checkout treated as a worktree"
 [ "$(k '⌕ ' '' enter "$b")" = jump ] && [ "$(k '⌕ ' '' esc)" = abort ] || fail "↵/esc outside a field"
 [ "$(FZF_INPUT_STATE=enabled k '⌕ ' do esc)" = change-footer:keys ] || fail "esc in the filter closed the panel"
 [ "$(k 'message to X › ' '' esc)" = change-footer:keys ] || fail "esc in a field closed the panel"
