@@ -77,11 +77,18 @@ case "${1:-}" in
     fi
     [ -n "${width:-}" ] || width="$(tmux display -p -t "$w" '#{window_width}')"
     # Keep the width the user dragged the panel to, not the default.
-    pw="$(tmux display -p -t "$p" '#{pane_width}')"
+    # Alone in its window (its agents there were killed), it has spread to the full width.
+    pw="$(tmux display -p -t "$p" '#{?#{==:#{window_panes},1},'"$WIDTH"',#{pane_width}}')"
     [ "$width" -ge $(( pw * 2 )) ] || { chain "$@"; exit 0; }
     tmux set -w -t "$w" @agents_bare "$(tmux display -p -t "$w" '#{window_layout}')"
     first="$(tmux list-panes -t "$w" -F '#{pane_id}' | head -1)"
-    join=(${size[@]+"${size[@]}"} join-pane -d -fhb -l "$pw" -s "$p" -t "$first")
+    # Its window and, if that was the last, its session close as it leaves. A
+    # client there would detach (detach-on-destroy), before the switch that
+    # rides along could move it.
+    gone=()
+    [ "$(tmux display -p -t "$p" '#{window_panes}:#{session_windows}')" != 1:1 ] ||
+      gone=(set -t "$p" detach-on-destroy off \;)
+    join=(${gone[@]+"${gone[@]}"} ${size[@]+"${size[@]}"} join-pane -d -fhb -l "$pw" -s "$p" -t "$first")
     [ $# -eq 0 ] || join+=(\; "$@")
     [ ${#size[@]} -eq 0 ] || join+=(\; set -w -t "$w" -u window-size)
     status=0; tmux "${join[@]}" || status=$?

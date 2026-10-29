@@ -331,6 +331,12 @@ for w in "$w2" "$s1" "$w1"; do "$here/src/agents-dock" follow "$w"; done
 [ "$(t display -p -t "$p" '#{pane_width}')" = 50 ] || fail "dock lost its resized width: $(t display -p -t "$p" '#{pane_width}')"
 [ "$(geo "$w2")" = "$g2" ] || fail "work:2 layout not restored: $(geo "$w2")"
 [ "$(geo "$s1")" = "$gs" ] || fail "side:1 layout not restored: $(geo "$s1")"
+# Its agents there killed, the panel fills its window alone: it still follows,
+# at the default width, and that window closes behind it.
+lw="$(t new-window -d -P -F '#{window_id}' -t work: 'sleep 600')"; lp="$(t list-panes -t "$lw" -F '#{pane_id}')"
+"$here/src/agents-dock" follow "$lw"; t kill-pane -t "$lp"; "$here/src/agents-dock" follow "$w1"
+[ "$(t display -p -t "$p" '#{window_id}:#{pane_width}')" = "$w1:64" ] || fail "a lone panel did not follow: $(t display -p -t "$p" '#{window_id}:#{pane_width}')"
+t resize-pane -t "$p" -x 50
 
 # A frame tracks no row: while fzf looks for one it drops the keys you press,
 # and with an agent working that was most of the time.
