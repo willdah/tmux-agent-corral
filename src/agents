@@ -154,24 +154,45 @@ age() {
   fi
 }
 
-# widths: from $cols, sets tw, pw (0: no project column), aw (0: no agent
-# column) and rw, the width of a row, the same for every row so the columns line up. The title stops at
-# 36 so a wide popup doesn't open a gulf before the project. The agent column
-# comes only with room to spare (not in the dock), then the project goes when
-# too narrow for it, so state, title and age, which the sort runs on, always
-# show.
+# widths: from $cols and the longest title (mt) and project (mp) listed, sets
+# tw, pw (0: no project column) and rw, the width of a row, the same for every
+# row so the columns line up. Each column fits its longest value (the title up
+# to 36, the project up to 22), so a short one leaves room for the other.
+# Short of room the title gives way first, down to 12, then the project,
+# which goes when under 6, so state, title and age, which the sort runs on,
+# always show. Room to spare is left over, not padded.
 widths() {
-  local fixed=9   # state mark, gaps and age: everything but title, project and agent
+  local fixed=11   # state mark, harness badge, gaps and age: everything but title and project
   local rest=$(( cols - fixed - 1 ))   # less the space before the project
-  aw=7   # copilot, the longest built-in harness; a longer name gets cut
-  if [ $(( rest - aw - 1 )) -ge 40 ]; then rest=$(( rest - aw - 1 )); else aw=0; fi
-  if [ "$rest" -ge 24 ]; then
-    pw=$(( rest / 3 )); [ "$pw" -gt 22 ] && pw=22
-    tw=$(( rest - pw )); [ "$tw" -le 36 ] || tw=36
-  else
-    pw=0 tw=$(( rest + 1 )); [ "$tw" -ge 6 ] || tw=6
+  local over cut
+  tw=$mt; [ "$tw" -le 36 ] || tw=36
+  pw=$mp; [ "$pw" -le 22 ] || pw=22
+  over=$(( tw + pw - rest ))
+  if [ "$over" -gt 0 ] && [ "$tw" -gt 12 ]; then
+    cut=$(( tw - 12 )); [ "$cut" -le "$over" ] || cut=$over
+    tw=$(( tw - cut )) over=$(( over - cut ))
   fi
-  rw=$(( fixed + tw + (pw > 0 ? pw + 1 : 0) + (aw > 0 ? aw + 1 : 0) ))
+  [ "$over" -le 0 ] || pw=$(( pw - over ))
+  if [ "$pw" -lt 6 ]; then
+    pw=0; tw=$mt; [ "$tw" -le 36 ] || tw=36; [ "$tw" -le $(( rest + 1 )) ] || tw=$(( rest + 1 ))
+  fi
+  [ "$tw" -ge 1 ] || tw=1
+  rw=$(( fixed + tw + (pw > 0 ? pw + 1 : 0) ))
+}
+
+# badge <var> <harness>: sets the harness's mark, one column: its adapter's
+# ICON (else its first letter) bold in its COLOR, or dim without one or under
+# NO_COLOR. Worked out once a harness per run.
+badge() {
+  local k="BADGE_${2//[^a-zA-Z0-9_]/_}" i
+  if [ -z "${!k:-}" ]; then
+    adapter "$2" || true
+    i="${ICON:-${2:0:1}}"
+    if [ -n "$COLOR" ] && [ -z "${NO_COLOR:-}" ]; then
+      printf -v "$k" '\033[1;38;2;%d;%d;%dm%s%s' "0x${COLOR:1:2}" "0x${COLOR:3:2}" "0x${COLOR:5:2}" "${i:-?}" "$R"
+    else printf -v "$k" '%s%s%s' "$DIM" "${i:-?}" "$R"; fi
+  fi
+  printf -v "$1" '%s' "${!k}"
 }
 
 # fit <var> <width> <text>: truncate with … and pad to width, counting
@@ -284,11 +305,26 @@ list() {
   fi
   now="$(date +%s)"
 
-  # Status, agent, age and gaps are fixed; the title gets what's left after
-  # the project's third (up to 22 columns), up to 36.
+  # The longest title and project, and the width each heading needs to keep
+  # its name whole (hn): rows widen their title to match, room allowing.
+  local mt=0 mp=0 hn=0 n ns i gl=(▲ ✓ zᶻ ●)
+  while IFS="$US" read -r rank _ _ st _ proj title sess; do
+    if [ "$rank" = H ]; then
+      read -r -a ns <<<"$st"
+      n=$(( ${#sess} + 4 ))
+      for i in 0 1 2 3; do [ "${ns[i]}" -le 0 ] || n=$(( n + 1 + ${#gl[i]} + ${#ns[i]} )); done
+      [ "$n" -le "$hn" ] || hn=$n
+    else
+      [ "${#title}" -le "$mt" ] || mt=${#title}
+      [ "${#proj}" -le "$mp" ] || mp=${#proj}
+    fi
+  done <<<"$rows"
+
   panel_cols
-  local tw pw aw rw cell
+  local tw pw rw cell
   widths
+  [ "$hn" -le "$cols" ] || hn=$cols
+  [ "$hn" -le "$rw" ] || { tw=$(( tw + hn - rw )); rw=$hn; }
 
   if [ -z "$rows" ]; then
     printf -- '-\t%s  no agents yet. Start claude, copilot or pi in any pane.%s\n' "$DIM" "$R"
@@ -300,13 +336,13 @@ list() {
   # The rule keeps two bars; the name is cut with … to fit, and the counts go
   # when even that won't. The floor keeps every cut non-negative on an
   # absurdly narrow panel.
-  local hw=$rw bars s n ns i counts cl gl=(▲ ✓ zᶻ ●) gc=("$AMBER" "$GREEN" "$DIM" "$BLUE") ri=0
+  local hw=$rw bars s counts cl gc=("$AMBER" "$GREEN" "$DIM" "$BLUE") ri=0
   [ "$hw" -le "$cols" ] || hw=$cols
   hw=$(( hw - 1 ))
   [ "$hw" -ge 5 ] || hw=5
   printf -v bars '%*s' "$hw" ''; bars="${bars// /─}"
   while IFS="$US" read -r rank since id st agent proj title sess; do
-    local glyph col who='' ago where=''
+    local glyph col who ago where=''
     if [ "$rank" = H ]; then
       read -r -a ns <<<"$st"
       counts='' cl=0
@@ -327,7 +363,7 @@ list() {
       *)       glyph='zᶻ' col=$DIM   ;;
     esac
     [ "$pw" -gt 0 ] && { fit cell "$pw" "$proj"; where=" $DIM$cell$R"; }
-    [ "$aw" -gt 0 ] && { fit cell "$aw" "$agent"; who=" $DIM$cell$R"; }
+    badge who "$agent"
     fit cell "$tw" "$title"; age ago "$since"
     if [ "$st" = running ] && [ -n "${AGENTS_STATE:-}" ]; then
       # Each working row on its own phase, so two never move in step.
@@ -335,12 +371,12 @@ list() {
       shine cell "$cell" $(( (frame + ri * 11) % (tw + 12) - 6 ))
     else cell="$TEXT$cell$R"; fi
     ri=$(( ri + 1 ))
-    printf '%s\t %s%s%s %s%s%s %s%4s%s\t%s\n' \
+    printf '%s\t %s%s%s %s %s%s %s%4s%s\t%s\n' \
       "$id" \
       "$col" "$glyph" "$R" \
+      "$who" \
       "$cell" \
       "$where" \
-      "$who" \
       "$DIM" "$ago" "$R" \
       "$title"
   done <<<"$rows"

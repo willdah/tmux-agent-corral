@@ -4,3 +4,5 @@ PROMPT=--
 INTERRUPT=Escape
 HOOK=extension.ts   # linked to HOOK_LINK
 HOOK_LINK="$HOME/.pi/agent/extensions/agent-state.ts"
+ICON=π
+COLOR='#5B9BC8'

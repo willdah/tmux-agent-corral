@@ -97,10 +97,12 @@ launch_names() {
 
 # adapter <harness>: sets PROMPT (the flag before a first prompt), INTERRUPT
 # (the key that stops a turn), and HOOK and HOOK_LINK (the hook file and where
-# it is linked; empty when the folder's install wires it instead). Fails, and
+# it is linked; empty when the folder's install wires it instead), and ICON
+# and COLOR (its mark in the panel: one single-width character, on a #rrggbb
+# brand colour; either may be empty). Fails, and
 # leaves the defaults, for a harness with no adapter.
 adapter() {
-  PROMPT=-- INTERRUPT=Escape HOOK='' HOOK_LINK=''
+  PROMPT=-- INTERRUPT=Escape HOOK='' HOOK_LINK='' ICON='' COLOR=''
   [ -f "$HARNESSES/$1/adapter.sh" ] || return 1
   # shellcheck source=/dev/null
   . "$HARNESSES/$1/adapter.sh"
