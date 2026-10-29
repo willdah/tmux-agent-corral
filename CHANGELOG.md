@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.20.0](https://github.com/willdah/tmux-agent-corral/compare/0.19.1...0.20.0) - 2026-10-29
+
+### Added
+
+- offer to remove a killed agent's worktree
+
 ## [0.19.1](https://github.com/willdah/tmux-agent-corral/compare/0.19.0...0.19.1) - 2026-10-28
 
 ### Fixed
