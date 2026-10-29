@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: FAQ
+    url: https://github.com/willdah/tmux-agent-corral/blob/main/docs/faq.md
+    about: Agent not showing up, stuck marks, broken hooks
+  - name: Known limits
+    url: https://github.com/willdah/tmux-agent-corral/blob/main/docs/known-limits.md
+    about: Behaviour that is expected, not a bug

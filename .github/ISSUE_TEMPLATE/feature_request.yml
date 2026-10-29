@@ -8,3 +8,7 @@ body:
       label: What you want and why
     validations:
       required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today instead

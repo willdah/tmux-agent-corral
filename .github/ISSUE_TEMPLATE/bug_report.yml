@@ -14,10 +14,17 @@ body:
       label: Steps to reproduce
     validations:
       required: true
-  - type: input
+  - type: textarea
     id: versions
     attributes:
       label: Versions
       description: Output of `tmux -V; fzf --version`, your OS, and the agent (Claude Code, Copilot CLI, Pi...)
+      render: shell
     validations:
       required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor output
+      description: Output of `~/.config/tmux/agents/src/doctor`
+      render: shell
