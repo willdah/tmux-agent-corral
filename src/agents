@@ -20,7 +20,7 @@
 #                     Grouped, a heading record leads each session: rank H,
 #                     its counts by rank in the state field, -<session> as id.
 #
-# Keys: ↵ jump · y approve · m message · n rename · x interrupt · d kill · c new · g group · r refresh · q close
+# Keys: ↵ jump · y approve · m message · n rename · x interrupt · d remove · c new · g group · r refresh · q hide
 # (@agents_panel_key_<action> moves one; agents --keys lists them as set:
 # action, key, popup hint, dock hint).
 #
@@ -565,9 +565,10 @@ slash() {
 #   key m|n PANE            open the field, on an agent's row only; n also
 #                           on a group heading, to rename its session
 #   key message|rename SHOWN  the prompt, naming the agent, cut for the dock
-#   key d PANE              ask, in the footer, before killing an agent's pane
-#   key kill SHOWN          that question, naming the agent, cut for the dock
-#   key enter PANE SHOWN    send, rename or kill, then say in the footer how it went,
+#   key d PANE              ask, in the input field, before removing an agent's pane
+#   key kill SHOWN          that question as the field's label, naming the agent, cut for the dock
+#   key wt                  the label for the worktree question that may follow
+#   key enter PANE SHOWN    send, rename or remove, then say in the footer how it went,
 #                           put back by key restore 3s later; elsewhere, jump
 #   key esc                 leave the field, or close the panel
 #   key first               on opening grouped, start on the first agent, not its heading
@@ -586,27 +587,28 @@ key() {
     d:*)                  is_pane "${2:-}" || return 0
                           printf '%s' "$AGENTS_D"; return ;;
     kill:*)               local n="${2:-}"; [ "${#n}" -le 24 ] || n="${n:0:23}…"
-                          printf '%skill %s?%s  %s↵%s yes  %sesc%s no%s' "$TEXT" "$n" "$R" "$B$TEXT" "$UB$DIM" "$B$TEXT" "$UB$DIM" "$R"
+                          printf ' %sremove %s?%s ' "$AMBER" "$n" "$R"
                           return ;;
+    wt:*)                 printf ' %sremove worktree?%s ' "$AMBER" "$R"; return ;;
     message:*|rename:*)   local n="${2:-}"; [ "${#n}" -le 24 ] || n="${n:0:23}…"
                           printf '%s %s › ' "${1/message/message to}" "$n"
                           return ;;
     'enter:message to '*) if [ -z "$FZF_QUERY" ]; then :
                           elif message "$2" "$FZF_QUERY" 2>/dev/null; then did="${GREEN}✓${R} sent to $TEXT$3"
                           else did="${AMBER}✗${R} not sent: $TEXT$3$R is gone"; fi ;;
-    'enter:kill'*)        local dir wt; dir="$(tmux display -p -t "${2:-}" '#{pane_current_path}' 2>/dev/null)"
-                          if kill_pane "$2" 2>/dev/null; then did="${GREEN}✓${R} killed $TEXT$3"
+    'enter:remove agent'*) local dir wt; dir="$(tmux display -p -t "${2:-}" '#{pane_current_path}' 2>/dev/null)"
+                          if kill_pane "$2" 2>/dev/null; then did="${GREEN}✓${R} removed $TEXT$3"
                             # A worktree that loses nothing gets a second question, which the
                             # tick asks: it has to land after the bind's close. One that would says why it stays.
                             if wt="$(worktree "$dir")"; then printf '%s\n' "$wt" "$3" >"$AGENTS_STATE/worktree"
                             elif [ -n "$wt" ]; then did+="$R$DIM; its worktree stays: $wt"; fi
-                          else did="${AMBER}✗${R} not killed: $TEXT$3$R is gone"; fi ;;
+                          else did="${AMBER}✗${R} not removed: $TEXT$3$R is gone"; fi ;;
     remove:*)             local wt n; { read -r wt; read -r n; } 2>/dev/null <"$AGENTS_STATE/ask" || return 0
                           [ "${#n}" -le 24 ] || n="${n:0:23}…"
-                          printf '%s✓%s killed %s%s  %sremove its worktree %s?%s  %s↵%s yes  %sesc%s no%s' \
+                          printf '%s✓%s removed %s%s  %sremove its worktree %s?%s  %s↵%s yes  %sesc%s no%s' \
                             "$GREEN" "$R" "$TEXT" "$n" "$R$TEXT" "${wt##*/}" "$R" "$B$TEXT" "$UB$DIM" "$B$TEXT" "$UB$DIM" "$R"
                           return ;;
-    'enter:remove'*)      local wt out; read -r wt 2>/dev/null <"$AGENTS_STATE/ask" || wt=''
+    'enter:remove worktree'*) local wt out; read -r wt 2>/dev/null <"$AGENTS_STATE/ask" || wt=''
                           rm -f "$AGENTS_STATE/ask"
                           # Asked a moment ago: check again, git refuses a dirty one too.
                           if [ -z "$wt" ]; then :
@@ -695,11 +697,11 @@ approve   y approve   approve
 message   m message   msg
 rename    n rename    name
 interrupt x interrupt stop
-kill      d kill      kill
+kill      d remove    remove
 new       c new       -
 group     g group     -
 preview   p preview   peek
-close     q close     close
+close     q hide      hide
 reload    r -         -
 down      j -         -
 up        k -         -
@@ -771,12 +773,15 @@ panel() {
   export AGENTS_LOCK="${lock%,}"
   lock+='up,down'
   local open="unbind($lock)+disable-search+change-input-label()+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
+  # d asks in that same field, its amber label the question. The label is set in the
+  # background: fzf drops a label change in the same chain as show-input.
+  local ask="unbind($lock)+disable-search+change-query()+show-input" yes="$B${TEXT}↵$UB$DIM yes  $B${TEXT}esc$UB$DIM no$R"
   local close="+clear-query+enable-search+hide-input+change-prompt(⌕ )+change-input-label( filter )+rebind($lock)+track-current+reload-sync($self --list0)"
   export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
     AGENTS_M="$open+change-query()+transform-prompt($self --key message {3})" \
     AGENTS_N="$open+transform-query(printf %s {3})+transform-prompt($self --key rename {3})" \
-    AGENTS_D="unbind($lock)+disable-search+change-prompt(kill › )+transform-footer($self --key kill {3})" \
-    AGENTS_W="unbind($lock)+disable-search+change-prompt(remove › )+transform-footer($self --key remove)"
+    AGENTS_D="$ask+change-prompt(remove agent › )+bg-transform-input-label($self --key kill {3})+change-footer($yes)" \
+    AGENTS_W="$ask+change-prompt(remove worktree › )+bg-transform-input-label($self --key wt)+transform-footer($self --key remove)"
 
   # The first list loads through reload so it, too, sees $FZF_COLUMNS.
   # shellcheck disable=SC2154   # palette sets the colours
