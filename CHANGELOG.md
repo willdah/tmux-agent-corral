@@ -7,6 +7,16 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.22.0](https://github.com/willdah/tmux-agent-corral/compare/0.21.2...0.22.0) - 2026-11-02
+
+### Added
+
+- ask before removing an agent in a visible box
+
+### Fixed
+
+- treat anything typed in the remove box as no
+
 ## [0.21.2](https://github.com/willdah/tmux-agent-corral/compare/0.21.1...0.21.2) - 2026-10-29
 
 ### Fixed
