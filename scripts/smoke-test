@@ -381,6 +381,10 @@ t select-pane -t "$p"; "$here/src/agents" --ping; sleep 0.5
 lit || fail "refocused panel's title not marked: $(title)"
 # The summary counts the agents; the list under it shows them.
 t capture-pane -p -t "$p" | grep -q 'need you' || fail "no summary in the docked panel: $(t capture-pane -p -t "$p")"
+# The key hints sit in their own box, a line per group: agent, agents, panel.
+keys="$(t capture-pane -p -t "$p" | sed -n '/─ keys ─/,/╰/p')"
+grep -q '│ *↵ jump  y approve  m msg  x stop *│' <<<"$keys" && grep -q '│ *n name  d remove *│' <<<"$keys" \
+  && grep -q '│ */ filter  p peek  q hide *│' <<<"$keys" || fail "key hints not a line per group in a keys box: $keys"
 "$here/src/agents-dock" toggle "$w1"; sleep 0.5
 
 # The working rows animate while you move through the list, and no key is

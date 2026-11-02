@@ -66,20 +66,20 @@ Inside the panel:
 | Key | Action |
 |-----|--------|
 | `↵` | jump to the agent (the popup closes; the docked panel keeps focus) |
-| `/` | filter the list; the action keys type while it's open, and `//` or `Esc` closes it |
 | `y` | approve: sends Enter, and only to an agent that is waiting |
 | `m` | type a message to it, right in the panel (↵ sends, esc cancels) |
-| `n` | give it a name, starting from the one it shows (empty resets to the agent's own title) |
 | `x` | interrupt: sends Escape (C-c to Copilot), and only to an agent that is working |
+| `n` | give it a name, starting from the one it shows (empty resets to the agent's own title) |
 | `d` | remove it: close its pane, once you confirm with ↵ (esc cancels); the last pane takes its window, the last window its session. If the agent was in a git worktree that has no changes, no unpushed commits and no other pane in it, a second ↵ removes the worktree too (its branch stays) |
 | `c` | start a new agent in a window of its own: pick a folder, a worktree if it's a git repo, the session to add it to, the agent, and a first prompt or none (see [Start a new agent](docs/new-agents.md)); not in the docked panel's key hints, but works there |
+| `/` | filter the list; the action keys type while it's open, and `//` or `Esc` closes it |
 | `g` | group by tmux session (the session with the most urgent agent first, each heading counting its agents by state); not in the docked panel's key hints, but works there |
 | `p` | toggle the live preview of the agent's screen |
 | `r` | refresh |
 | `j` / `k` | move down / up |
 | `q` / `Esc` | hide the panel (`Esc` closes an open filter or field first) |
 
-To move one of the letter keys, name its action: `set -g @agents_panel_key_interrupt X` (the actions are `approve`, `message`, `rename`, `interrupt`, `kill`, `new`, `group`, `preview`, `close`, `reload`, `down` and `up`). The footer follows. An empty value unbinds one. `↵`, `Esc` and the arrows stay as they are.
+To move one of the letter keys, name its action: `set -g @agents_panel_key_interrupt X` (the actions are `approve`, `message`, `interrupt`, `rename`, `kill`, `new`, `group`, `preview`, `close`, `reload`, `down` and `up`). The keys box at the foot of the panel follows; it shows the hints a line per group: the selected agent, the agents, the panel. An empty value unbinds one. `↵`, `Esc` and the arrows stay as they are.
 
 The panel refreshes the moment an agent changes state, and every 10 seconds to keep the ages current. Visiting a finished agent's pane turns its `✓` into a quiet idle `zᶻ`. A `▲` stays until the agent gets its answer.
 

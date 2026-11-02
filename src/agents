@@ -20,7 +20,7 @@
 #                     Grouped, a heading record leads each session: rank H,
 #                     its counts by rank in the state field, -<session> as id.
 #
-# Keys: ↵ jump · y approve · m message · n rename · x interrupt · d remove · c new · g group · r refresh · q hide
+# Keys: ↵ jump · y approve · m message · x interrupt · n rename · d remove · c new · / filter · g group · p preview · q hide · r refresh
 # (@agents_panel_key_<action> moves one; agents --keys lists them as set:
 # action, key, popup hint, dock hint).
 #
@@ -697,8 +697,8 @@ keymap() {
   done <<'KEYS'
 approve   y approve   approve
 message   m message   msg
-rename    n rename    name
 interrupt x interrupt stop
+rename    n rename    name
 kill      d remove    remove
 new       c new       -
 group     g group     -
@@ -732,19 +732,25 @@ panel() {
   export AGENTS_STATE AGENTS_PAL="$pal"
   local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
 
-  # The binds, footer and the lock below all come from keymap. The footer's
-  # hints wrap to a second line rather than run off a narrow panel.
-  local a k hint footer='' fl=0 fw lock='' binds=()
-  fw="$( (stty size </dev/tty) 2>/dev/null || true)"; fw=$(( ${fw#* } + 0 - 6 ))
-  [ "$fw" -gt 0 ] || fw=200
+  # The binds, footer and the lock below all come from keymap. The footer
+  # puts each group of hints on a line of its own: the selected agent, the
+  # agents, the panel. A group too wide for the list wraps rather than run off.
+  local a k hint footer='' fl=0 fw g=1 gk lock='' binds=()
+  fw="$( (stty size </dev/tty) 2>/dev/null || true)"; fw=$(( ${fw#* } + 0 ))
+  # The popup's list is what the 55% preview leaves; 6 is the box's borders, padding and fzf's indent.
+  [ "$watch" = watch ] || fw=$(( fw - fw * 55 / 100 ))
+  fw=$(( fw - 6 )); [ "$fw" -gt 0 ] || fw=200
   addhint() {
     local n=$(( ${#1} + ${#2} + 3 ))
     if [ "$fl" -gt 0 ] && [ $(( fl + n - 2 )) -gt "$fw" ]; then footer="${footer%  }"$'\n'; fl=0; fi
     footer+="$B$TEXT$1$UB$DIM $2  "; fl=$(( fl + n ))
   }
-  addhint ↵ jump; addhint / filter
+  newline() { [ "$fl" -eq 0 ] || { footer="${footer%  }"$'\n'; fl=0; }; }
+  addhint ↵ jump
   while read -r -a k; do
     a="${k[0]}"
+    case "$a" in approve|message|interrupt) gk=1 ;; rename|kill|new) gk=2 ;; *) gk=3 ;; esac
+    if [ "$gk" -gt "$g" ]; then newline; [ "$gk" = 3 ] && addhint / filter; g=$gk; fi
     case "$a" in
       approve)   binds+=(--bind="${k[1]}:execute-silent($self --approve {1})+track-current+reload-sync($self --list0)") ;;
       message)   binds+=(--bind="${k[1]}:transform($self --key m {1})") ;;
@@ -762,6 +768,7 @@ panel() {
     hint="${k[hint_col]}"
     [ "$hint" = - ] || addhint "${k[1]}" "$hint"
   done < <(keymap)
+  [ "$g" = 3 ] || { newline; addhint / filter; }
 
   # Stage a refresh for the tick to apply: at once when agent-state signals
   # the agents channel, and every 10s, after a sweep for agents that died
@@ -800,13 +807,13 @@ panel() {
     --list-border=rounded --list-label=' agents ' --list-label-pos=3 \
     --info=hidden --pointer='▌' --gutter=' ' --highlight-line \
     --footer="${footer%  }" \
-    --footer-border=none \
+    --footer-border=rounded --footer-label=' keys ' --footer-label-pos=3 \
     --preview='case {1} in %*) tmux capture-pane -pe -J -t {1} -S -80 | awk "{l[NR]=\$0} NF{n=NR} END{for(i=1;i<=n;i++)print l[i]}" ;; esac' \
     --preview-window="$preview" \
     --bind="focus:transform-preview-label:$label" \
     --color="fg:$tc,bg:$bgc,fg+:255,bg+:236,hl:$bc,hl+:$bc" \
     --color="border:$fc,label:$bc,preview-border:$fc,preview-label:$dc,footer-border:$fc" \
-    --color="list-border:$fc,header-border:$fc,input-border:$fc,list-label:$dc,input-label:$dc" \
+    --color="list-border:$fc,header-border:$fc,input-border:$fc,list-label:$dc,input-label:$dc,footer-label:$dc" \
     --color="pointer:$bc,marker:$bc,gutter:-1,info:$dc,header:$tc" \
     --color="prompt:$bc,query:255" \
     --bind="enter:transform($self --key enter {1} {3})$close" \
