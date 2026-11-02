@@ -597,7 +597,9 @@ key() {
                           elif message "$2" "$FZF_QUERY" 2>/dev/null; then did="${GREEN}✓${R} sent to $TEXT$3"
                           else did="${AMBER}✗${R} not sent: $TEXT$3$R is gone"; fi ;;
     'enter:remove agent'*) local dir wt; dir="$(tmux display -p -t "${2:-}" '#{pane_current_path}' 2>/dev/null)"
-                          if kill_pane "$2" 2>/dev/null; then did="${GREEN}✓${R} removed $TEXT$3"
+                          # Anything typed (an "n", say) is a no: only esc or a bare ↵ answers.
+                          if [ -n "$FZF_QUERY" ]; then :
+                          elif kill_pane "$2" 2>/dev/null; then did="${GREEN}✓${R} removed $TEXT$3"
                             # A worktree that loses nothing gets a second question, which the
                             # tick asks: it has to land after the bind's close. One that would says why it stays.
                             if wt="$(worktree "$dir")"; then printf '%s\n' "$wt" "$3" >"$AGENTS_STATE/worktree"
@@ -611,7 +613,7 @@ key() {
     'enter:remove worktree'*) local wt out; read -r wt 2>/dev/null <"$AGENTS_STATE/ask" || wt=''
                           rm -f "$AGENTS_STATE/ask"
                           # Asked a moment ago: check again, git refuses a dirty one too.
-                          if [ -z "$wt" ]; then :
+                          if [ -z "$wt" ] || [ -n "$FZF_QUERY" ]; then :
                           elif ! out="$(worktree "$wt")"; then did="${AMBER}✗${R} worktree kept: $TEXT${out:-it is gone}"
                           elif out="$(git -C "$wt" worktree remove "$wt" 2>&1)"; then did="${GREEN}✓${R} removed $TEXT${wt##*/}"
                           else did="${AMBER}✗${R} not removed: $TEXT${out##*$'\n'}"; fi ;;

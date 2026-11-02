@@ -200,6 +200,7 @@ k '⌕ ' '' kill "$(printf '%030d' 0)" | grep -q 'remove 0\{23\}…?' || fail "r
 alive() { t list-panes -a -F '#{pane_id}' | grep -qx "$1"; }
 kp="$(t new-window -d -P -F '#{pane_id}' -t side: 'sleep 600')"
 [ "$(k 'remove agent › ' '' esc)" = change-footer:keys ] && alive "$kp" || fail "esc on kill closed the panel or the pane"
+[ "$(k 'remove agent › ' n enter "$kp" sleeper)" = change-footer:keys ] && alive "$kp" || fail "a typed n removed the pane"
 k 'remove agent › ' '' enter "$kp" sleeper | grep -q 'removed .*sleeper' || fail "remove footer"
 alive "$kp" && fail "pane not killed"
 k 'remove agent › ' '' enter "$kp" sleeper | grep -q 'not removed: .*sleeper.* is gone' || fail "kill of a gone pane claimed success"
