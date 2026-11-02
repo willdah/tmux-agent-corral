@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.22.1](https://github.com/willdah/tmux-agent-corral/compare/0.22.0...0.22.1) - 2026-11-02
+
+### Fixed
+
+- label the message and rename field, not filter
+
 ## [0.22.0](https://github.com/willdah/tmux-agent-corral/compare/0.21.2...0.22.0) - 2026-11-02
 
 ### Added
