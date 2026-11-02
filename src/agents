@@ -774,14 +774,15 @@ panel() {
   # put too, so the row being written to can't change underneath.
   export AGENTS_LOCK="${lock%,}"
   lock+='up,down'
-  local open="unbind($lock)+disable-search+change-input-label()+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
-  # d asks in that same field, its amber label the question. The label is set in the
-  # background: fzf drops a label change in the same chain as show-input.
+  local open="unbind($lock)+disable-search+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
+  # m and n label the field with what it does, and d asks in it, its amber label the
+  # question. Each label is set in the background: fzf drops a label change in the
+  # same chain as show-input.
   local ask="unbind($lock)+disable-search+change-query()+show-input" yes="$B${TEXT}↵$UB$DIM yes  $B${TEXT}esc$UB$DIM no$R"
   local close="+clear-query+enable-search+hide-input+change-prompt(⌕ )+change-input-label( filter )+rebind($lock)+track-current+reload-sync($self --list0)"
   export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
-    AGENTS_M="$open+change-query()+transform-prompt($self --key message {3})" \
-    AGENTS_N="$open+transform-query(printf %s {3})+transform-prompt($self --key rename {3})" \
+    AGENTS_M="$open+bg-transform-input-label(echo ' message ')+change-query()+transform-prompt($self --key message {3})" \
+    AGENTS_N="$open+bg-transform-input-label(echo ' rename ')+transform-query(printf %s {3})+transform-prompt($self --key rename {3})" \
     AGENTS_D="$ask+change-prompt(remove agent › )+bg-transform-input-label($self --key kill {3})+change-footer($yes)" \
     AGENTS_W="$ask+change-prompt(remove worktree › )+bg-transform-input-label($self --key wt)+transform-footer($self --key remove)"
 

@@ -415,8 +415,15 @@ above || fail "agent$up did not move above $on: $(names | tr '\n' ' ')"
 # An open field holds the rows still, and m after a refresh is not lost.
 t send-keys -t "$p" m; sleep 0.4
 t capture-pane -p -t "$p" | grep -q "message to $on" || fail "m did not open the field: $(t capture-pane -p -t "$p" | head -12)"
+# Poll: the labels come from transforms, slow on a busy runner.
+label() { for _ in $(seq 20); do t capture-pane -p -t "$p" | grep -q "─ $1 ─" && return; sleep 0.2; done; return 1; }
+label message || fail "the field is not labelled message: $(t capture-pane -p -t "$p" | head -12)"
 seen=(); for _ in 1 2 3 4 5; do seen+=("$(wave agent1)"); sleep 0.2; done
 [ "$(kinds "${seen[@]}")" = 1 ] || fail "the working rows moved under an open field: ${seen[*]}"
+# Closing reloads the list, and fzf drops keys until that reload is done.
+t send-keys -t "$p" Escape; sleep 1
+t send-keys -t "$p" /
+label filter || fail "the filter kept the field's label: $(t capture-pane -p -t "$p" | head -12)"
 t send-keys -t "$p" Escape; sleep 0.3
 "$here/src/agents-dock" toggle "$w1"; sleep 0.5
 for x in "${extra[@]}"; do t kill-pane -t "$x"; done
