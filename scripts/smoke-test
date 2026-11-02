@@ -194,15 +194,16 @@ sleep 0.3; t capture-pane -p -t "$mp" | grep -qF 'hi; -x )' || fail "message not
 t kill-pane -t "$mp"
 k 'message to cat › ' hi enter "$mp" cat | grep -q 'not sent: .*cat.* is gone' || fail "message to a gone pane claimed success"
 k 'rename cat › ' x enter "$mp" cat | grep -q 'not renamed' || fail "rename of a gone pane claimed success"
-# d asks in the footer, on an agent's row only; ↵ kills the pane, esc keeps it.
+# d asks in the input field, on an agent's row only; ↵ removes the pane, esc keeps it.
 [ "$(k '⌕ ' '' d "$b")" = open-d ] && [ -z "$(k '⌕ ' '' d -work)" ] || fail "d opened on a heading, or not on an agent"
-k '⌕ ' '' kill "$(printf '%030d' 0)" | grep -q 'kill 0\{23\}…?' || fail "kill question"
+k '⌕ ' '' kill "$(printf '%030d' 0)" | grep -q 'remove 0\{23\}…?' || fail "remove question"
 alive() { t list-panes -a -F '#{pane_id}' | grep -qx "$1"; }
 kp="$(t new-window -d -P -F '#{pane_id}' -t side: 'sleep 600')"
-[ "$(k 'kill › ' '' esc)" = change-footer:keys ] && alive "$kp" || fail "esc on kill closed the panel or the pane"
-k 'kill › ' '' enter "$kp" sleeper | grep -q 'killed .*sleeper' || fail "kill footer"
+[ "$(k 'remove agent › ' '' esc)" = change-footer:keys ] && alive "$kp" || fail "esc on kill closed the panel or the pane"
+[ "$(k 'remove agent › ' n enter "$kp" sleeper)" = change-footer:keys ] && alive "$kp" || fail "a typed n removed the pane"
+k 'remove agent › ' '' enter "$kp" sleeper | grep -q 'removed .*sleeper' || fail "remove footer"
 alive "$kp" && fail "pane not killed"
-k 'kill › ' '' enter "$kp" sleeper | grep -q 'not killed: .*sleeper.* is gone' || fail "kill of a gone pane claimed success"
+k 'remove agent › ' '' enter "$kp" sleeper | grep -q 'not removed: .*sleeper.* is gone' || fail "kill of a gone pane claimed success"
 # Killing an agent in a linked worktree that loses nothing asks to remove it;
 # one with changes, unpushed commits or another pane in it stays, saying why.
 gk() { git -C "$1" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "${@:2}" >/dev/null 2>&1; }
@@ -213,22 +214,22 @@ wt="$(cd -P "$kt/repo-wt" && pwd)"; mkdir "$kt/st"
 kw() { AGENTS_STATE="$kt/st" k "$@"; }
 wp() { t new-window -d -P -F '#{pane_id}' -t side: -c "$wt" 'sleep 600'; }
 p1="$(wp)"; p2="$(wp)"
-kw 'kill › ' '' enter "$p1" sleeper | grep -q 'worktree stays: a pane is still in it' || fail "worktree in use offered for removal"
+kw 'remove agent › ' '' enter "$p1" sleeper | grep -q 'worktree stays: a pane is still in it' || fail "worktree in use offered for removal"
 touch "$wt/new"
-kw 'kill › ' '' enter "$p2" sleeper | grep -q 'worktree stays: it has changes' || fail "dirty worktree offered for removal"
+kw 'remove agent › ' '' enter "$p2" sleeper | grep -q 'worktree stays: it has changes' || fail "dirty worktree offered for removal"
 rm "$wt/new"; gk "$wt" commit -q --allow-empty -m two; p1="$(wp)"
-kw 'kill › ' '' enter "$p1" sleeper | grep -q 'worktree stays: it has unpushed commits' || fail "unpushed worktree offered for removal"
+kw 'remove agent › ' '' enter "$p1" sleeper | grep -q 'worktree stays: it has unpushed commits' || fail "unpushed worktree offered for removal"
 gk "$wt" push -q origin wt; p1="$(wp)"
-kw 'kill › ' '' enter "$p1" sleeper | grep -q 'killed .*sleeper' && [ -f "$kt/st/worktree" ] || fail "clean worktree not offered for removal"
+kw 'remove agent › ' '' enter "$p1" sleeper | grep -q 'removed .*sleeper' && [ -f "$kt/st/worktree" ] || fail "clean worktree not offered for removal"
 # The tick asks once the kill's field has closed, and only once.
-[ -z "$(AGENTS_W=ask-w FZF_PROMPT='kill › ' AGENTS_STATE="$kt/st" "$here/src/agents" --tick | grep ask-w)" ] || fail "tick asked inside the kill field"
+[ -z "$(AGENTS_W=ask-w FZF_PROMPT='remove agent › ' AGENTS_STATE="$kt/st" "$here/src/agents" --tick | grep ask-w)" ] || fail "tick asked inside the kill field"
 AGENTS_W=ask-w FZF_PROMPT='⌕ ' AGENTS_STATE="$kt/st" "$here/src/agents" --tick | grep -q ask-w || fail "tick did not ask"
 [ -z "$(AGENTS_W=ask-w FZF_PROMPT='⌕ ' AGENTS_STATE="$kt/st" "$here/src/agents" --tick | grep ask-w)" ] || fail "tick asked twice"
 kw '⌕ ' '' remove | grep -q 'remove its worktree repo-wt?' || fail "remove question"
-kw 'remove › ' '' enter | grep -q 'removed .*repo-wt' && [ ! -e "$wt" ] || fail "worktree not removed"
+kw 'remove worktree › ' '' enter | grep -q 'removed .*repo-wt' && [ ! -e "$wt" ] || fail "worktree not removed"
 git -C "$kt/repo" branch --list wt | grep -q wt || fail "removing the worktree took its branch"
-[ "$(kw 'remove › ' '' enter)" = change-footer:keys ] || fail "remove with nothing asked did something"
-k 'kill › ' '' enter "$(t new-window -d -P -F '#{pane_id}' -t side: -c "$kt/repo" 'sleep 600')" sleeper | grep -q 'stays' &&
+[ "$(kw 'remove worktree › ' '' enter)" = change-footer:keys ] || fail "remove with nothing asked did something"
+k 'remove agent › ' '' enter "$(t new-window -d -P -F '#{pane_id}' -t side: -c "$kt/repo" 'sleep 600')" sleeper | grep -q 'stays' &&
   fail "main checkout treated as a worktree"
 [ "$(k '⌕ ' '' enter "$b")" = jump ] && [ "$(k '⌕ ' '' esc)" = abort ] || fail "↵/esc outside a field"
 [ "$(FZF_INPUT_STATE=enabled k '⌕ ' do esc)" = change-footer:keys ] || fail "esc in the filter closed the panel"
@@ -426,7 +427,7 @@ t set -g @agents_panel_key_preview P \; set -g @agents_panel_key_kill '' \; set 
 "$here/src/agents-dock" toggle "$w1"; p="$(t show -gv @agents_dock)"; sleep 1.5
 foot="$(t capture-pane -p -t "$p")"   # the hints sit above the peek
 grep -q 'P peek' <<<"$foot" || fail "moved key not in the footer: $foot"
-grep -q 'kill' <<<"$foot" && fail "unbound key still in the footer: $foot"
+grep -q 'remove' <<<"$foot" && fail "unbound key still in the footer: $foot"
 grp="$(t show -gv @agents_group)"
 t send-keys -t "$p" g; sleep 0.5
 [ "$(t show -gv @agents_group)" = "$grp" ] || fail "g still groups after moving to G"
