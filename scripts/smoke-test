@@ -179,6 +179,7 @@ row="$(NO_COLOR=1 FZF_COLUMNS=38 "$here/src/agents" --list | grep "^$q1")"
 case "$row" in *+2-1*) fail "a narrow panel kept the stat: $row" ;; *repo*) ;; *) fail "a narrow panel dropped the project before the stat: $row" ;; esac
 rm "$tmp/repo/new"; g checkout -q f
 [ "$(NO_COLOR=1 "$here/src/agents" --diff "$a")" = 'not a git repo' ] || fail "diff outside a repo"
+[ -z "$(cd "$tmp/repo" && "$here/src/agents" --diff %99999)" ] || fail "diff of a gone pane showed the panel's own folder"
 for q in $qs; do TMUX_PANE=$q "$here/src/agent-state" clear </dev/null; done
 plain="$(NO_COLOR=1 "$here/src/agents" --list)"
 case "$plain" in *$'\033'*) fail "NO_COLOR left colour codes in" ;; esac

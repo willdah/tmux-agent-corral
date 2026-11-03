@@ -261,9 +261,9 @@ rows() {
       pdir=$dir
     fi
     # The diff stat, live: git once a directory a run, and only in a repo
-    # (the project cache above is only kept for one).
+    # (the project cache above is only kept for one). --rows leaves it out.
     stat=''
-    if [ "$pdir" = "$dir" ]; then
+    if [ "$pdir" = "$dir" ] && [ -z "${nostat:-}" ]; then
       case "$stats" in
         (*"$US$dir="*) stat="${stats#*"$US$dir="}"; stat="${stat%%"$US"*}" ;;
         (*) diffstat stat "$dir"; stats+="$dir=$stat$US" ;;
@@ -549,6 +549,7 @@ diffview() {
   local dir top base=HEAD c=always u w="${FZF_PREVIEW_COLUMNS:-80}"
   [ -z "${NO_COLOR:-}" ] || c=never
   dir="$(tmux display -p -t "$1" '#{pane_current_path}' 2>/dev/null)"
+  [ -n "$dir" ] || return 0   # gone: git -C '' would diff the panel's own folder
   top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || { printf '%snot a git repo%s\n' "$DIM" "$R"; return 0; }
   # A repo with no commit yet: everything is new against the empty tree.
   git -C "$top" rev-parse -q --verify HEAD >/dev/null || base="$(git -C "$top" hash-object -t tree /dev/null)"
@@ -921,7 +922,7 @@ case "${1:-}" in
   --frame)     list cached | nul ;;
   --stage)     r="$(rows)" && printf '%s\n' "$r" >"$AGENTS_STATE/next.$$" && mv "$AGENTS_STATE/next.$$" "$AGENTS_STATE/next" ;;
   --header)    header ;;
-  --rows)      rows | cut -d"$US" -f1-9 | tr "$US" '\t' ;;
+  --rows)      nostat=1 rows | cut -d"$US" -f1-9 | tr "$US" '\t' ;;
   --diff)      diffview "${2:-}" ;;
   # d: flip the peek between the agent's screen, which follows its end, and
   # its diff, which opens at the top.
