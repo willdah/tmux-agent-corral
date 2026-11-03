@@ -71,6 +71,26 @@ f='#{@agent}#{@agent_state}#{@agent_since}#{@agent_name}#{@agent_dir}#{@agent_pr
 [ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "sweep cleared a live agent"
 [ "$(t display -p -t "$wrap" '#{@agent_state}')" = running ] || fail "sweep cleared a wrapper shell with a child"
 t kill-pane -t "$wrap"
+# A working Claude whose screen sits still for 30s goes idle, without a word;
+# one whose screen moves, or another harness, stays working.
+scr() { local h; h="$(t capture-pane -p -t "$1" | cksum)"; echo "${h%% *}"; }
+"$here/src/agent-state" sweep
+case "$(t display -p -t "$a" '#{@agent_screen}')" in "$(scr "$a") "[0-9]*) ;; *) fail "sweep did not record the screen: $(t display -p -t "$a" '#{@agent_screen}')" ;; esac
+t set -p -t "$a" @agent_screen "1 $(( $(date +%s) - 31 ))"
+"$here/src/agent-state" sweep
+[ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "a moving screen went idle"
+t set -p -t "$a" @agent_screen "$(scr "$a") $(( $(date +%s) - 29 ))"
+"$here/src/agent-state" sweep
+[ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "a still screen went idle before 30s"
+t set -p -t "$a" @agent_screen "$(scr "$a") $(( $(date +%s) - 31 ))"
+"$here/src/agent-state" sweep
+[ "$(t display -p -t "$a" '#{@agent_state}/#{@agent_screen}')" = idle/ ] || fail "a still screen stayed working: $(t display -p -t "$a" '#{@agent_state}/#{@agent_screen}')"
+TMUX_PANE=$a "$here/src/agent-state" running copilot </dev/null
+t set -p -t "$a" @agent_screen "$(scr "$a") $(( $(date +%s) - 31 ))"
+"$here/src/agent-state" sweep
+[ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "sweep idled a still copilot"
+TMUX_PANE=$a "$here/src/agent-state" idle </dev/null; TMUX_PANE=$a "$here/src/agent-state" running </dev/null
+[ -z "$(t display -p -t "$a" '#{@agent_screen}')" ] || fail "a state change kept @agent_screen"
 # --rows: eight tab-separated fields per agent, rank and since leading.
 r="$("$here/src/agents" --rows | grep "	$b	")"
 [ "$(printf '%s' "$r" | awk -F'\t' '{print NF, $1, $2, $3, $4, $5, $6, $7, $8}')" = "8 0 $since $b input claude smokeproj work work" ] || fail "rows record: $r"

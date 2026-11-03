@@ -17,6 +17,8 @@
 #   @agent_name   a name given in the agents panel (n); cleared here too
 #   @agent_dir, @agent_project
 #                 the panel's cached project lookup; cleared here too
+#   @agent_screen sweep's record of a working Claude's screen: a hash and
+#                 when it was first seen
 #
 # Every change signals the tmux wait-for channel `agents`, which an open
 # panel waits on to refresh at once. `input` and `done` also tell you, unless
@@ -42,8 +44,11 @@
 #           jump call this
 #   sweep   clears every pane whose agent is gone without a word (a crash or
 #           kill -9 skips SessionEnd): the pane is back at a bare shell with
-#           nothing running under it. The panel runs this on open and every
-#           10s
+#           nothing running under it. And marks idle a working Claude whose
+#           screen has not changed for 30s: an Escape in its pane fires no
+#           hook, and its working screen always moves (the timer ticks, even
+#           through a silent tool call). The panel runs this on open and
+#           every 10s
 
 command -v tmux >/dev/null 2>&1 || exit 0
 here() { cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd; }
@@ -70,9 +75,14 @@ case "${1:-}" in
     exit 0
     ;;
   sweep)
-    tmux list-panes -a -f '#{@agent_state}' -F '#{pane_id} #{pane_current_command} #{pane_pid}' 2>/dev/null |
-      while read -r id cmd ppid; do
-        stale "$cmd" "$ppid" && TMUX_PANE="$id" "$0" clear </dev/null
+    now="$(date +%s)"
+    tmux list-panes -a -f '#{@agent_state}' -F '#{pane_id} #{pane_current_command} #{pane_pid} #{@agent}:#{@agent_state} #{@agent_screen}' 2>/dev/null |
+      while read -r id cmd ppid st hash since; do
+        if stale "$cmd" "$ppid"; then TMUX_PANE="$id" "$0" clear </dev/null; continue; fi
+        [ "$st" = claude:running ] || continue
+        h="$(tmux capture-pane -p -t "$id" 2>/dev/null | cksum)"; h="${h%% *}"
+        if [ "$h" != "$hash" ]; then tmux set -p -t "$id" @agent_screen "$h $now" 2>/dev/null
+        elif [ $(( now - ${since:-$now} )) -ge 30 ]; then TMUX_PANE="$id" "$0" idle claude </dev/null; fi
       done
     exit 0
     ;;
@@ -122,7 +132,8 @@ p="$TMUX_PANE"
 case "$state" in
   clear)
     tmux set -pu -t "$p" @agent \; set -pu -t "$p" @agent_state \; set -pu -t "$p" @agent_since \; \
-         set -pu -t "$p" @agent_name \; set -pu -t "$p" @agent_dir \; set -pu -t "$p" @agent_project 2>/dev/null
+         set -pu -t "$p" @agent_name \; set -pu -t "$p" @agent_dir \; set -pu -t "$p" @agent_project \; \
+         set -pu -t "$p" @agent_screen 2>/dev/null
     ;;
   input|running|done|idle)
     # PostToolUse fires on every tool call; only a real change touches tmux,
@@ -130,7 +141,7 @@ case "$state" in
     [ "$(tmux display -p -t "$p" '#{@agent_state}' 2>/dev/null)" = "$state" ] && exit 0
     tmux set -p -t "$p" @agent "${2:-claude}" \; \
          set -p -t "$p" @agent_state "$state" \; \
-         set -p -t "$p" @agent_since "$(date +%s)" 2>/dev/null
+         set -p -t "$p" @agent_since "$(date +%s)" \; set -pu -t "$p" @agent_screen 2>/dev/null
     ;;
   *) exit 0 ;;
 esac

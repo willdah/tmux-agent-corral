@@ -48,4 +48,4 @@ agents --rows | awk -F'\t' '$4 == "input" { print $3 }'   # every pane waiting o
 
 ## Housekeeping
 
-`agent-state seen PANE` dims a finished agent to idle (the focus hook and the panel's jump call it), and `agent-state sweep` clears every pane whose agent died without saying so (the panel runs it on open and every 10s).
+`agent-state seen PANE` dims a finished agent to idle (the focus hook and the panel's jump call it), and `agent-state sweep` clears every pane whose agent died without saying so, and marks idle a working Claude whose screen has not changed for 30s (the panel runs it on open and every 10s).
