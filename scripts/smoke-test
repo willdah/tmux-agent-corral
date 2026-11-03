@@ -162,6 +162,23 @@ t set -p -t "$q" @agent_project cached
 "$here/src/agents" --list | grep "^$q" | grep -q 'mcached ' || fail "project cache not used"
 t set -p -t "$q" @agent_dir /elsewhere   # as if the agent had moved here from there
 "$here/src/agents" --list | grep "^$q" | grep -q 'mrepo ' || fail "project cache not refreshed on a new directory"
+# The diff, against HEAD: d's view in the peek, and +added-removed on the row,
+# live; a file git does not track yet is a change with no lines.
+q1="${qs# }"; q1="${q1%% *}"
+[ "$(NO_COLOR=1 "$here/src/agents" --diff "$q1")" = 'no changes' ] || fail "diff of a clean repo"
+NO_COLOR=1 "$here/src/agents" --list | grep "^$q1" | grep -q '+0' && fail "a clean repo's row shows a stat"
+: >"$tmp/repo/new"
+NO_COLOR=1 "$here/src/agents" --list | grep "^$q1" | grep -q ' +0-0 ' || fail "an untracked file is no change"
+printf 'a\nb\n' >"$tmp/repo/f"; g add f; g commit -q -m f
+printf 'a\nc\nd\n' >"$tmp/repo/f"
+dv="$(NO_COLOR=1 "$here/src/agents" --diff "$q1")"
+grep -q '^ f | ' <<<"$dv" && grep -qx '+c' <<<"$dv" && grep -qx '?? new' <<<"$dv" || fail "diff view: $dv"
+NO_COLOR=1 "$here/src/agents" --list | grep "^$q1" | grep -q ' +2-1 ' || fail "row stat: $(NO_COLOR=1 "$here/src/agents" --list | grep "^$q1")"
+"$here/src/agents" --rows | grep -q '+2-1' && fail "the stat is in --rows"
+row="$(NO_COLOR=1 FZF_COLUMNS=38 "$here/src/agents" --list | grep "^$q1")"
+case "$row" in *+2-1*) fail "a narrow panel kept the stat: $row" ;; *repo*) ;; *) fail "a narrow panel dropped the project before the stat: $row" ;; esac
+rm "$tmp/repo/new"; g checkout -q f
+[ "$(NO_COLOR=1 "$here/src/agents" --diff "$a")" = 'not a git repo' ] || fail "diff outside a repo"
 for q in $qs; do TMUX_PANE=$q "$here/src/agent-state" clear </dev/null; done
 plain="$(NO_COLOR=1 "$here/src/agents" --list)"
 case "$plain" in *$'\033'*) fail "NO_COLOR left colour codes in" ;; esac
@@ -439,8 +456,8 @@ lit || fail "refocused panel's title not marked: $(title)"
 t capture-pane -p -t "$p" | grep -q 'need you' || fail "no summary in the docked panel: $(t capture-pane -p -t "$p")"
 # The key hints sit in their own box, a line per group: agent, agents, panel.
 keys="$(t capture-pane -p -t "$p" | sed -n '/─ keys ─/,/╰/p')"
-grep -q '│ *↵ jump  y approve  m msg  x stop *│' <<<"$keys" && grep -q '│ *n name  d remove *│' <<<"$keys" \
-  && grep -q '│ */ filter  p peek  q hide *│' <<<"$keys" || fail "key hints not a line per group in a keys box: $keys"
+grep -q '│ *↵ jump  y approve  m msg  s stop *│' <<<"$keys" && grep -q '│ *n name  x remove *│' <<<"$keys" \
+  && grep -q '│ */ filter  p peek  d diff  q hide *│' <<<"$keys" || fail "key hints not a line per group in a keys box: $keys"
 "$here/src/agents-dock" toggle "$w1"; sleep 0.5
 
 # The working rows animate while you move through the list, and no key is

@@ -19,10 +19,12 @@
 #                     (epoch), pane id, state, harness, project, name, session,
 #                     note. Grouped, a heading record leads each session: rank
 #                     H, its counts by rank in the state field, -<session> as id.
+#   agents --diff PANE  the preview's diff view: PANE's repo against HEAD
 #
-# A row shows the agent's note (agent-state note) on a dim line under it.
+# A row shows its repo's changes against HEAD (+added-removed lines) after the
+# project, and the agent's note (agent-state note) on a dim line under it.
 #
-# Keys: ↵ jump · y approve · m message · x interrupt · n rename · d remove · c new · / filter · g group · p preview · q hide · r refresh
+# Keys: ↵ jump · y approve · m message · s stop · n rename · x remove · c new · / filter · g group · p preview · d diff · q hide · r refresh
 # (@agents_panel_key_<action> moves one; agents --keys lists them as set:
 # action, key, popup hint, dock hint).
 #
@@ -156,19 +158,22 @@ age() {
   fi
 }
 
-# widths: from $cols and the longest title (mt) and project (mp) listed, sets
-# tw, pw (0: no project column) and rw, the width of a row, the same for every
+# widths: from $cols and the longest title (mt), project (mp) and diff stat
+# (ms) listed, sets tw, pw (0: no project column), sw (0: no stat column) and rw, the width of a row, the same for every
 # row so the columns line up. Each column fits its longest value (the title up
 # to 36, the project up to 22), so a short one leaves room for the other.
 # Short of room the title gives way first, down to 12, then the project,
 # which goes when under 6, so state, title and age, which the sort runs on,
 # always show. Room to spare is left over, not padded.
 widths() {
-  local fixed=11   # state mark, harness badge, gaps and age: everything but title and project
+  local fixed=11   # state mark, harness badge, gaps and age: everything but title, project and stat
   local rest=$(( cols - fixed - 1 ))   # less the space before the project
   local over cut
   tw=$mt; [ "$tw" -le 36 ] || tw=36
   pw=$mp; [ "$pw" -le 22 ] || pw=22
+  # The diff stat, and its space, goes first when room is short.
+  sw=0; [ "$ms" -eq 0 ] || sw=$(( ms + 1 ))
+  [ $(( tw + pw + sw )) -le "$rest" ] || sw=0
   over=$(( tw + pw - rest ))
   if [ "$over" -gt 0 ] && [ "$tw" -gt 12 ]; then
     cut=$(( tw - 12 )); [ "$cut" -le "$over" ] || cut=$over
@@ -179,7 +184,7 @@ widths() {
     pw=0; tw=$mt; [ "$tw" -le 36 ] || tw=36; [ "$tw" -le $(( rest + 1 )) ] || tw=$(( rest + 1 ))
   fi
   [ "$tw" -ge 1 ] || tw=1
-  rw=$(( fixed + tw + (pw > 0 ? pw + 1 : 0) ))
+  rw=$(( fixed + tw + (pw > 0 ? pw + 1 : 0) + sw ))
 }
 
 # badge <var> <harness>: sets the harness's mark, one column: its adapter's
@@ -217,6 +222,20 @@ project() {
   return "$rc"
 }
 
+# diffstat <var> <dir>: +added-removed for the changes in dir's repo against
+# HEAD; a file git does not track yet counts as a change with no lines. Empty
+# when there are none.
+diffstat() {
+  local out a=0 d=0
+  out="$(git -C "$2" diff --shortstat HEAD 2>/dev/null)" || true
+  if [ -z "$out" ] && [ -z "$(git -C "$2" ls-files -o --exclude-standard --directory -- ':/' 2>/dev/null | head -1)" ]; then
+    printf -v "$1" ''; return 0
+  fi
+  [[ "$out" =~ ([0-9]+)\ insertion ]] && a=${BASH_REMATCH[1]}
+  [[ "$out" =~ ([0-9]+)\ deletion ]] && d=${BASH_REMATCH[1]}
+  printf -v "$1" '+%s-%s' "$a" "$d"
+}
+
 US=$'\037'   # unit separator: unlike a tab, read keeps empty fields
 
 # rows: the records behind the panel, sorted and, with @agents_group on,
@@ -225,7 +244,7 @@ US=$'\037'   # unit separator: unlike a tab, read keeps empty fields
 # `agent-state sweep`, which the panel runs on open and every 10s.
 rows() {
   local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{@agent_dir}${US}#{@agent_project}${US}#{@agent_name}${US}#{@agent_note}${US}#{pane_title}"
-  local host="${HOSTNAME:-$(hostname)}" group fb keys=('-k1,1n' '-k2,2n')
+  local host="${HOSTNAME:-$(hostname)}" group fb keys=('-k1,1n' '-k2,2n') stats="$US" stat
   group="$(tmux show -gv @agents_group 2>/dev/null || true)"
   [ "$group" = on ] && keys+=('-k8,8')
   # Grouped, awk gathers each session's rows in the order its first (most
@@ -239,6 +258,16 @@ rows() {
     # agents there ever get common.
     if [ "$pdir" != "$dir" ] && project proj "$dir"; then
       tmux set -p -t "$id" @agent_dir "$dir" \; set -p -t "$id" @agent_project "$proj" 2>/dev/null || true
+      pdir=$dir
+    fi
+    # The diff stat, live: git once a directory a run, and only in a repo
+    # (the project cache above is only kept for one).
+    stat=''
+    if [ "$pdir" = "$dir" ]; then
+      case "$stats" in
+        (*"$US$dir="*) stat="${stats#*"$US$dir="}"; stat="${stat%%"$US"*}" ;;
+        (*) diffstat stat "$dir"; stats+="$dir=$stat$US" ;;
+      esac
     fi
     case "$st" in   # (pattern) form: bash 3.2 misparses `pattern)` inside $( )
       (input)   rank=0 ;;
@@ -254,7 +283,7 @@ rows() {
     case "$title" in ("$host"|'Claude Code'|'GitHub Copilot') title= ;; esac
     # Under the session heading, an untitled row names its directory instead.
     fb="$sess"; [ "$group" = on ] && fb="${dir##*/}"
-    printf "%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s\n" "$rank" "${since:-0}" "$id" "$st" "$agent" "$proj" "${name:-${title:-$fb}}" "$sess" "$note"
+    printf "%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s\n" "$rank" "${since:-0}" "$id" "$st" "$agent" "$proj" "${name:-${title:-$fb}}" "$sess" "$note" "$stat"
   done | sort -t"$US" "${keys[@]}" | if [ "$group" = on ]; then
     awk -F"$US" -v OFS="$US" '
       !($8 in r) { o[k++] = $8 }
@@ -309,8 +338,8 @@ list() {
 
   # The longest title and project, and the width each heading needs to keep
   # its name whole (hn): rows widen their title to match, room allowing.
-  local mt=0 mp=0 hn=0 n ns i gl=(▲ ✓ zᶻ ●)
-  while IFS="$US" read -r rank _ _ st _ proj title sess; do
+  local mt=0 mp=0 ms=0 hn=0 n ns i gl=(▲ ✓ zᶻ ●)
+  while IFS="$US" read -r rank _ _ st _ proj title sess _ stat; do
     if [ "$rank" = H ]; then
       read -r -a ns <<<"$st"
       n=$(( ${#sess} + 4 ))
@@ -319,11 +348,12 @@ list() {
     else
       [ "${#title}" -le "$mt" ] || mt=${#title}
       [ "${#proj}" -le "$mp" ] || mp=${#proj}
+      [ "${#stat}" -le "$ms" ] || ms=${#stat}
     fi
   done <<<"$rows"
 
   panel_cols
-  local tw pw rw cell
+  local tw pw sw rw cell
   widths
   [ "$hn" -le "$cols" ] || hn=$cols
   [ "$hn" -le "$rw" ] || { tw=$(( tw + hn - rw )); rw=$hn; }
@@ -343,8 +373,8 @@ list() {
   hw=$(( hw - 1 ))
   [ "$hw" -ge 5 ] || hw=5
   printf -v bars '%*s' "$hw" ''; bars="${bars// /─}"
-  while IFS="$US" read -r rank since id st agent proj title sess note; do
-    local glyph col who ago where='' nl=''
+  while IFS="$US" read -r rank since id st agent proj title sess note stat; do
+    local glyph col who ago where='' sc='' nl=''
     if [ "$rank" = H ]; then
       read -r -a ns <<<"$st"
       counts='' cl=0
@@ -365,6 +395,7 @@ list() {
       *)       glyph='zᶻ' col=$DIM   ;;
     esac
     [ "$pw" -gt 0 ] && { fit cell "$pw" "$proj"; where=" $DIM$cell$R"; }
+    [ "$sw" -gt 0 ] && printf -v sc ' %s%*s%s' "$DIM" $(( sw - 1 )) "$stat" "$R"
     # The note, a line of the row's own (the panel turns \037 into one),
     # under the title, as wide as the panel lets it.
     [ -z "$note" ] || [ "$cols" -lt 8 ] || { fit nl $(( cols - 6 )) "$note"; nl=$'\037'"      $DIM$nl$R"; }
@@ -376,12 +407,12 @@ list() {
       shine cell "$cell" $(( (frame + ri * 11) % (tw + 12) - 6 ))
     else cell="$TEXT$cell$R"; fi
     ri=$(( ri + 1 ))
-    printf '%s\t %s%s%s %s %s%s %s%4s%s%s\t%s\n' \
+    printf '%s\t %s%s%s %s %s%s%s %s%4s%s%s\t%s\n' \
       "$id" \
       "$col" "$glyph" "$R" \
       "$who" \
       "$cell" \
-      "$where" \
+      "$where" "$sc" \
       "$DIM" "$ago" "$R" "$nl" \
       "$title"
   done <<<"$rows"
@@ -508,6 +539,25 @@ message() {
   local msg="${2:-}"
   [ -n "$msg" ] || return 0
   tmux send-keys -t "$1" -l -- "$msg" && tmux send-keys -t "$1" Enter
+}
+
+# diffview PANE: the preview's other view: what PANE's repo has changed
+# against HEAD. The stat, then the diff (through delta when it is installed),
+# then the files git does not track yet; or a dim line saying there is none.
+diffview() {
+  is_pane "${1:-}" || return 0
+  local dir top base=HEAD c=always u w="${FZF_PREVIEW_COLUMNS:-80}"
+  [ -z "${NO_COLOR:-}" ] || c=never
+  dir="$(tmux display -p -t "$1" '#{pane_current_path}' 2>/dev/null)"
+  top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || { printf '%snot a git repo%s\n' "$DIM" "$R"; return 0; }
+  # A repo with no commit yet: everything is new against the empty tree.
+  git -C "$top" rev-parse -q --verify HEAD >/dev/null || base="$(git -C "$top" hash-object -t tree /dev/null)"
+  u="$(git -C "$top" ls-files -o --exclude-standard)"
+  if git -C "$top" diff --quiet "$base" && [ -z "$u" ]; then printf '%sno changes%s\n' "$DIM" "$R"; return 0; fi
+  git -C "$top" -c color.ui=$c diff --stat="$w" "$base"
+  if [ $c = always ] && command -v delta >/dev/null 2>&1; then git -C "$top" diff "$base" | delta --width="$w" --paging=never
+  else git -C "$top" -c color.ui=$c diff "$base"; fi
+  [ -z "$u" ] || { git -C "$top" diff --quiet "$base" || echo; printf '%s\n' "$u" | sed 's/^/?? /'; }
 }
 
 # rename PANE [NAME]: the name shows in place of the agent's own title until
@@ -721,12 +771,13 @@ keymap() {
   done <<'KEYS'
 approve   y approve   approve
 message   m message   msg
-interrupt x interrupt stop
+interrupt s interrupt stop
 rename    n rename    name
-kill      d remove    remove
+kill      x remove    remove
 new       c new       -
 group     g group     -
 preview   p preview   peek
+diff      d diff      diff
 close     q hide      hide
 reload    r -         -
 down      j -         -
@@ -754,7 +805,8 @@ panel() {
   trap 'rm -rf "$AGENTS_STATE"' EXIT
   # shellcheck disable=SC2154   # palette sets pal: what tmux said
   export AGENTS_STATE AGENTS_PAL="$pal"
-  local label='case {1} in %*) tmux display -p -t {1} " #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
+  # The peek's label says which view it shows (d flips it), then names the pane.
+  local label='case {1} in %*) v=screen; [ -f "$AGENTS_STATE/diff" ] && v=diff; tmux display -p -t {1} " $v · #{session_name}:#{window_index}.#{pane_index}  #{pane_current_path} " ;; esac'
 
   # The binds, footer and the lock below all come from keymap. The footer
   # puts each group of hints on a line of its own: the selected agent, the
@@ -784,6 +836,7 @@ panel() {
       new)       binds+=(--bind="${k[1]}:$new") ;;
       group)     binds+=(--bind="${k[1]}:execute-silent($self --group)+track-current+reload-sync($self --list0)") ;;
       preview)   binds+=(--bind="${k[1]}:toggle-preview+transform-preview-label:$label") ;;
+      diff)      binds+=(--bind="${k[1]}:transform($self --view)+show-preview+refresh-preview+transform-preview-label:$label") ;;
       close)     binds+=(--bind="${k[1]}:abort") ;;
       reload)    binds+=(--bind="${k[1]}:track-current+reload-sync($self --list0)") ;;
       down|up)   binds+=(--bind="${k[1]}:$a") ;;
@@ -832,7 +885,7 @@ panel() {
     --info=hidden --pointer='▌' --gutter=' ' --highlight-line \
     --footer="${footer%  }" \
     --footer-border=rounded --footer-label=' keys ' --footer-label-pos=3 \
-    --preview='case {1} in %*) tmux capture-pane -pe -J -t {1} -S -80 | awk "{l[NR]=\$0} NF{n=NR} END{for(i=1;i<=n;i++)print l[i]}" ;; esac' \
+    --preview="case {1} in %*) if [ -f \"\$AGENTS_STATE/diff\" ]; then '$self' --diff {1}; else tmux capture-pane -pe -J -t {1} -S -80 | awk '{l[NR]=\$0} NF{n=NR} END{for(i=1;i<=n;i++)print l[i]}'; fi ;; esac" \
     --preview-window="$preview" \
     --bind="focus:transform-preview-label:$label" \
     --color="fg:$tc,bg:$bgc,fg+:255,bg+:236,hl:$bc,hl+:$bc" \
@@ -868,7 +921,12 @@ case "${1:-}" in
   --frame)     list cached | nul ;;
   --stage)     r="$(rows)" && printf '%s\n' "$r" >"$AGENTS_STATE/next.$$" && mv "$AGENTS_STATE/next.$$" "$AGENTS_STATE/next" ;;
   --header)    header ;;
-  --rows)      rows | tr "$US" '\t' ;;
+  --rows)      rows | cut -d"$US" -f1-9 | tr "$US" '\t' ;;
+  --diff)      diffview "${2:-}" ;;
+  # d: flip the peek between the agent's screen, which follows its end, and
+  # its diff, which opens at the top.
+  --view)      if [ -f "$AGENTS_STATE/diff" ]; then rm -f "$AGENTS_STATE/diff"; printf 'change-preview-window(follow)'
+               else : >"$AGENTS_STATE/diff"; printf 'change-preview-window(nofollow)'; fi ;;
   --keys)      keymap ;;
   --label)     label ;;
   --ping)      ping ;;
