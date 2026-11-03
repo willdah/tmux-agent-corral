@@ -19,7 +19,7 @@ No. `agent-state` always exits 0 and swallows its own errors, so the worst that 
 <details>
 <summary><b>A pane is stuck on <code>●</code> (or anything else).</b></summary>
 
-Usually that's an Escape typed into Claude's pane (see [Known limits](known-limits.md)); your next prompt fixes it, and interrupting with `x` from the panel avoids it. To clear it by hand, run `~/.config/tmux/agents/src/agent-state clear` in that pane. Closing the pane also clears it, because the state lives in the pane.
+Usually that's an Escape typed into Claude's pane (see [Known limits](known-limits.md)); with a panel open it turns idle within about 30s, your next prompt fixes it too, and interrupting with `s` from the panel avoids it. To clear it by hand, run `~/.config/tmux/agents/src/agent-state clear` in that pane. Closing the pane also clears it, because the state lives in the pane.
 
 </details>
 

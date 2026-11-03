@@ -21,7 +21,7 @@ Claude Code, Copilot CLI and Pi sessions, in any tmux session, window or pane, r
 
 - **Status line:** one mark per agent across all sessions, waiting first. `▲` (amber) needs you, `●` (blue) working, `✓` (green) finished and not yet looked at.
 - **Window tabs:** each tab carries the marks of its own panes, so the window to go to is the one with the `▲`.
-- **The panel:** every agent in one list, waiting ones first with the longest wait on top, and a live view of the selected pane. Open it as a popup, or dock it as a pane that follows you to every window.
+- **The panel:** every agent in one list, waiting ones first with the longest wait on top, and a live view of the selected pane or of its diff. Each row shows its repo's changes against HEAD (`+12-3`) and the agent's note, if it has one: why it waits, or a line you or a script set (`agent-state note`). Open it as a popup, or dock it as a pane that follows you to every window.
 - **Any harness:** the protocol is one script, so agents beyond the built-in three can join with a single hook line.
 
 ## Requirements
@@ -68,18 +68,19 @@ Inside the panel:
 | `↵` | jump to the agent (the popup closes; the docked panel keeps focus) |
 | `y` | approve: sends Enter, and only to an agent that is waiting |
 | `m` | type a message to it, right in the panel (↵ sends, esc cancels) |
-| `x` | interrupt: sends Escape (C-c to Copilot), and only to an agent that is working |
+| `s` | stop: sends Escape (C-c to Copilot), and only to an agent that is working |
 | `n` | give it a name, starting from the one it shows (empty resets to the agent's own title) |
-| `d` | remove it: close its pane, once you confirm with ↵ (esc cancels); the last pane takes its window, the last window its session. If the agent was in a git worktree that has no changes, no unpushed commits and no other pane in it, a second ↵ removes the worktree too (its branch stays) |
+| `x` | remove it: close its pane, once you confirm with ↵ (esc cancels); the last pane takes its window, the last window its session. If the agent was in a git worktree that has no changes, no unpushed commits and no other pane in it, a second ↵ removes the worktree too (its branch stays) |
 | `c` | start a new agent in a window of its own: pick a folder, a worktree if it's a git repo, the session to add it to, the agent, and a first prompt or none (see [Start a new agent](docs/new-agents.md)); not in the docked panel's key hints, but works there |
 | `/` | filter the list; the action keys type while it's open, and `//` or `Esc` closes it |
 | `g` | group by tmux session (the session with the most urgent agent first, each heading counting its agents by state); not in the docked panel's key hints, but works there |
 | `p` | toggle the live preview of the agent's screen |
+| `d` | switch the preview between the agent's screen and its diff: what its repo has changed against HEAD, then the files git does not track yet |
 | `r` | refresh |
 | `j` / `k` | move down / up |
 | `q` / `Esc` | hide the panel (`Esc` closes an open filter or field first) |
 
-To move one of the letter keys, name its action: `set -g @agents_panel_key_interrupt X` (the actions are `approve`, `message`, `interrupt`, `rename`, `kill`, `new`, `group`, `preview`, `close`, `reload`, `down` and `up`). The keys box at the foot of the panel follows; it shows the hints a line per group: the selected agent, the agents, the panel. An empty value unbinds one. `↵`, `Esc` and the arrows stay as they are.
+To move one of the letter keys, name its action: `set -g @agents_panel_key_interrupt X` (the actions are `approve`, `message`, `interrupt`, `rename`, `kill`, `new`, `group`, `preview`, `diff`, `close`, `reload`, `down` and `up`). `x` used to stop and `d` to remove; `set -g @agents_panel_key_interrupt x`, `set -g @agents_panel_key_kill d` and `set -g @agents_panel_key_diff D` bring that back. The keys box at the foot of the panel follows; it shows the hints a line per group: the selected agent, the agents, the panel. An empty value unbinds one. `↵`, `Esc` and the arrows stay as they are.
 
 The panel refreshes the moment an agent changes state, and every 10 seconds to keep the ages current. Visiting a finished agent's pane turns its `✓` into a quiet idle `zᶻ`. A `▲` stays until the agent gets its answer.
 

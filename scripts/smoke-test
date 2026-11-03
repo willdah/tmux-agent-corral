@@ -71,11 +71,51 @@ f='#{@agent}#{@agent_state}#{@agent_since}#{@agent_name}#{@agent_dir}#{@agent_pr
 [ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "sweep cleared a live agent"
 [ "$(t display -p -t "$wrap" '#{@agent_state}')" = running ] || fail "sweep cleared a wrapper shell with a child"
 t kill-pane -t "$wrap"
-# --rows: eight tab-separated fields per agent, rank and since leading.
+# A working Claude whose screen sits still for 30s goes idle, without a word;
+# one whose screen moves, or another harness, stays working.
+scr() { local h; h="$(t capture-pane -p -t "$1" | cksum)"; echo "${h%% *}"; }
+"$here/src/agent-state" sweep
+case "$(t display -p -t "$a" '#{@agent_screen}')" in "$(scr "$a") "[0-9]*) ;; *) fail "sweep did not record the screen: $(t display -p -t "$a" '#{@agent_screen}')" ;; esac
+t set -p -t "$a" @agent_screen "1 $(( $(date +%s) - 31 ))"
+"$here/src/agent-state" sweep
+[ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "a moving screen went idle"
+t set -p -t "$a" @agent_screen "$(scr "$a") $(( $(date +%s) - 29 ))"
+"$here/src/agent-state" sweep
+[ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "a still screen went idle before 30s"
+t set -p -t "$a" @agent_screen "$(scr "$a") $(( $(date +%s) - 31 ))"
+"$here/src/agent-state" sweep
+[ "$(t display -p -t "$a" '#{@agent_state}/#{@agent_screen}')" = idle/ ] || fail "a still screen stayed working: $(t display -p -t "$a" '#{@agent_state}/#{@agent_screen}')"
+TMUX_PANE=$a "$here/src/agent-state" running copilot </dev/null
+t set -p -t "$a" @agent_screen "$(scr "$a") $(( $(date +%s) - 31 ))"
+"$here/src/agent-state" sweep
+[ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "sweep idled a still copilot"
+TMUX_PANE=$a "$here/src/agent-state" idle </dev/null; TMUX_PANE=$a "$here/src/agent-state" running </dev/null
+[ -z "$(t display -p -t "$a" '#{@agent_screen}')" ] || fail "a state change kept @agent_screen"
+# --rows: nine tab-separated fields per agent, rank and since leading.
 r="$("$here/src/agents" --rows | grep "	$b	")"
-[ "$(printf '%s' "$r" | awk -F'\t' '{print NF, $1, $2, $3, $4, $5, $6, $7, $8}')" = "8 0 $since $b input claude smokeproj work work" ] || fail "rows record: $r"
+[ "$(printf '%s' "$r" | awk -F'\t' '{print NF, $1, $2, $3, $4, $5, $6, $7, $8, "<" $9 ">"}')" = "9 0 $since $b input claude smokeproj work work <>" ] || fail "rows record: $r"
 order="$("$here/src/agents" --rows | cut -f3 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
+# A note: one line, from agent-state note, under the row and in --rows. A
+# hook's message fills it as input comes in, unless there is one, and goes as
+# input does; yours stays.
+"$here/src/agent-state" note "$shell" hi 2>/dev/null && fail "note on no agent"
+"$here/src/agent-state" note "$c" $'fix\tthe\nlogin' || fail "note"
+[ "$("$here/src/agents" --rows | awk -F'\t' -v p="$c" '$3 == p { print $9 }')" = 'fix the login' ] || fail "note field: $("$here/src/agents" --rows | grep "$c")"
+NO_COLOR=1 "$here/src/agents" --list0 | tr '\0' '\n' | grep -A1 "^$c" | sed -n 2p | grep -q '^      fix the login' || fail "note line: $(NO_COLOR=1 "$here/src/agents" --list0 | tr '\0' '\n')"
+ask='{"message":"Claude needs your permission to use Bash"}'
+TMUX_PANE=$c "$here/src/agent-state" input <<<"$ask"
+[ "$(t display -p -t "$c" '#{@agent_note}|#{@agent_note_auto}')" = 'fix the login|' ] || fail "a hook replaced your note"
+TMUX_PANE=$c "$here/src/agent-state" done </dev/null
+[ "$(t display -p -t "$c" '#{@agent_note}')" = 'fix the login' ] || fail "leaving input cleared your note"
+"$here/src/agent-state" note "$c" '' && [ -z "$(t display -p -t "$c" '#{@agent_note}')" ] || fail "note not cleared"
+TMUX_PANE=$c "$here/src/agent-state" input <<<"$ask"
+[ "$(t display -p -t "$c" '#{@agent_note}|#{@agent_note_auto}')" = 'Claude needs your permission to use Bash|1' ] || fail "hook note: $(t display -p -t "$c" '#{@agent_note}|#{@agent_note_auto}')"
+TMUX_PANE=$c "$here/src/agent-state" running </dev/null
+[ -z "$(t display -p -t "$c" '#{@agent_note}#{@agent_note_auto}')" ] || fail "hook note outlived the wait"
+TMUX_PANE=$c "$here/src/agent-state" input <<<"$ask"; TMUX_PANE=$c "$here/src/agent-state" clear </dev/null
+[ -z "$(t display -p -t "$c" '#{@agent_note}#{@agent_note_auto}')" ] || fail "clear kept the note"
+TMUX_PANE=$c "$here/src/agent-state" done </dev/null
 # Grouped: a heading per session, the session with the most urgent row first
 # (b and d wait from the same second, so either), each in the usual order; an untitled row names its directory, not the
 # session its heading shows.
@@ -122,6 +162,24 @@ t set -p -t "$q" @agent_project cached
 "$here/src/agents" --list | grep "^$q" | grep -q 'mcached ' || fail "project cache not used"
 t set -p -t "$q" @agent_dir /elsewhere   # as if the agent had moved here from there
 "$here/src/agents" --list | grep "^$q" | grep -q 'mrepo ' || fail "project cache not refreshed on a new directory"
+# The diff, against HEAD: d's view in the peek, and +added-removed on the row,
+# live; a file git does not track yet is a change with no lines.
+q1="${qs# }"; q1="${q1%% *}"
+[ "$(NO_COLOR=1 "$here/src/agents" --diff "$q1")" = 'no changes' ] || fail "diff of a clean repo"
+NO_COLOR=1 "$here/src/agents" --list | grep "^$q1" | grep -q '+0' && fail "a clean repo's row shows a stat"
+: >"$tmp/repo/new"
+NO_COLOR=1 "$here/src/agents" --list | grep "^$q1" | grep -q ' +0-0 ' || fail "an untracked file is no change"
+printf 'a\nb\n' >"$tmp/repo/f"; g add f; g commit -q -m f
+printf 'a\nc\nd\n' >"$tmp/repo/f"
+dv="$(NO_COLOR=1 "$here/src/agents" --diff "$q1")"
+grep -q '^ f | ' <<<"$dv" && grep -qx '+c' <<<"$dv" && grep -qx '?? new' <<<"$dv" || fail "diff view: $dv"
+NO_COLOR=1 "$here/src/agents" --list | grep "^$q1" | grep -q ' +2-1 ' || fail "row stat: $(NO_COLOR=1 "$here/src/agents" --list | grep "^$q1")"
+"$here/src/agents" --rows | grep -q '+2-1' && fail "the stat is in --rows"
+row="$(NO_COLOR=1 FZF_COLUMNS=38 "$here/src/agents" --list | grep "^$q1")"
+case "$row" in *+2-1*) fail "a narrow panel kept the stat: $row" ;; *repo*) ;; *) fail "a narrow panel dropped the project before the stat: $row" ;; esac
+rm "$tmp/repo/new"; g checkout -q f
+[ "$(NO_COLOR=1 "$here/src/agents" --diff "$a")" = 'not a git repo' ] || fail "diff outside a repo"
+[ -z "$(cd "$tmp/repo" && "$here/src/agents" --diff %99999)" ] || fail "diff of a gone pane showed the panel's own folder"
 for q in $qs; do TMUX_PANE=$q "$here/src/agent-state" clear </dev/null; done
 plain="$(NO_COLOR=1 "$here/src/agents" --list)"
 case "$plain" in *$'\033'*) fail "NO_COLOR left colour codes in" ;; esac
@@ -399,8 +457,8 @@ lit || fail "refocused panel's title not marked: $(title)"
 t capture-pane -p -t "$p" | grep -q 'need you' || fail "no summary in the docked panel: $(t capture-pane -p -t "$p")"
 # The key hints sit in their own box, a line per group: agent, agents, panel.
 keys="$(t capture-pane -p -t "$p" | sed -n '/─ keys ─/,/╰/p')"
-grep -q '│ *↵ jump  y approve  m msg  x stop *│' <<<"$keys" && grep -q '│ *n name  d remove *│' <<<"$keys" \
-  && grep -q '│ */ filter  p peek  q hide *│' <<<"$keys" || fail "key hints not a line per group in a keys box: $keys"
+grep -q '│ *↵ jump  y approve  m msg  s stop *│' <<<"$keys" && grep -q '│ *n name  x remove *│' <<<"$keys" \
+  && grep -q '│ */ filter  p peek  d diff  q hide *│' <<<"$keys" || fail "key hints not a line per group in a keys box: $keys"
 "$here/src/agents-dock" toggle "$w1"; sleep 0.5
 
 # The working rows animate while you move through the list, and no key is
