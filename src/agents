@@ -579,8 +579,8 @@ slash() {
 #                           on a group heading, to rename its session
 #   key message|rename SHOWN  the field's label, naming the agent, cut for the dock
 #   key d PANE              ask, in the input field, before removing an agent's pane
-#   key kill SHOWN          that question as the field's prompt, naming the agent, cut for the dock
-#   key wt                  the prompt for the worktree question that may follow
+#   key kill SHOWN          its amber label, naming the agent, cut for the dock
+#   key wt                  the label for the worktree question that may follow
 #   key enter PANE SHOWN    send, rename or remove, then say in the footer how it went,
 #                           put back by key restore 3s later; elsewhere, jump
 #   key esc                 leave the field, or close the panel
@@ -591,7 +591,8 @@ slash() {
 # in the bind: fzf drops a clear-query that comes out of a transform, and the
 # query would go on filtering the list.
 key() {
-  local did='' f="${FZF_INPUT_LABEL:-}"
+  local did='' f="${FZF_INPUT_LABEL:-}" e=$'\033'
+  f="${f//$e\[+([0-9;])m/}"   # the remove labels are amber
   # A label lands in the background, maybe after its field closed: the filter's prompt means none is open.
   [ "${FZF_PROMPT:-}" != '⌕ ' ] || f=' filter '
   case "$1:$f" in
@@ -604,10 +605,10 @@ key() {
     d:*)                  is_pane "${2:-}" || return 0
                           printf '%s' "$AGENTS_D"; return ;;
     kill:*)               local n="${2:-}"; [ "${#n}" -le 24 ] || n="${n:0:23}…"
-                          printf '%sremove %s?%s ' "$AMBER" "$n" "$R"
+                          printf ' %sremove · %s%s ' "$AMBER" "$n" "$R"
                           return ;;
     wt:*)                 local wt; read -r wt 2>/dev/null <"$AGENTS_STATE/ask" || return 0
-                          printf '%sremove %s?%s ' "$AMBER" "${wt##*/}" "$R"; return ;;
+                          printf ' %sremove worktree · %s%s ' "$AMBER" "${wt##*/}" "$R"; return ;;
     message:*|rename:*)   local n="${2:-}"; [ "${#n}" -le 24 ] || n="${n:0:23}…"
                           printf ' %s · %s ' "$1" "$n"
                           return ;;
@@ -623,8 +624,8 @@ key() {
                           elif ! rename "$2" "$FZF_QUERY" 2>/dev/null; then did="${AMBER}✗${R} not renamed: $TEXT$3$R is gone"
                           elif [ -n "$FZF_QUERY" ]; then did="${GREEN}✓${R} renamed to $TEXT$FZF_QUERY"
                           else did="${GREEN}✓${R} name reset"; fi ;;
-    enter:*'remove agent'*)  local dir wt; dir="$(tmux display -p -t "${2:-}" '#{pane_current_path}' 2>/dev/null)"
-                          # Anything typed (an "n", say) is a no: only esc or a bare ↵ answers.
+    'enter: remove · '*)  local dir wt; dir="$(tmux display -p -t "${2:-}" '#{pane_current_path}' 2>/dev/null)"
+                          # Anything typed (an "n", say) cancels: only esc or a bare ↵ answers.
                           if [ -n "$FZF_QUERY" ]; then :
                           elif kill_pane "$2" 2>/dev/null; then did="${GREEN}✓${R} removed $TEXT$3"
                             # A worktree that loses nothing gets a second question, which the
@@ -634,10 +635,10 @@ key() {
                           else did="${AMBER}✗${R} not removed: $TEXT$3$R is gone"; fi ;;
     remove:*)             local wt n; { read -r wt; read -r n; } 2>/dev/null <"$AGENTS_STATE/ask" || return 0
                           [ "${#n}" -le 24 ] || n="${n:0:23}…"
-                          printf '%s✓%s removed %s%s  %s↵%s yes  %sesc%s no%s' \
+                          printf '%s✓%s removed %s%s  %s↵%s remove  %sesc%s keep%s' \
                             "$GREEN" "$R" "$TEXT" "$n" "$R$B$TEXT" "$UB$DIM" "$B$TEXT" "$UB$DIM" "$R"
                           return ;;
-    enter:*'remove worktree'*)  local wt out; read -r wt 2>/dev/null <"$AGENTS_STATE/ask" || wt=''
+    'enter: remove worktree · '*) local wt out; read -r wt 2>/dev/null <"$AGENTS_STATE/ask" || wt=''
                           rm -f "$AGENTS_STATE/ask"
                           # Asked a moment ago: check again, git refuses a dirty one too.
                           if [ -z "$wt" ] || [ -n "$FZF_QUERY" ]; then :
@@ -793,16 +794,16 @@ panel() {
   export AGENTS_LOCK="${lock%,}"
   lock+='up,down'
   local open="unbind($lock)+disable-search+show-input+change-prompt(› )"
-  # m and n label the field with what it does and to whom; d asks in it, the
-  # prompt the question, the amber label what it removes. Each label is set in
-  # the background: fzf drops a label change in the same chain as show-input.
-  local ask="unbind($lock)+disable-search+change-query()+show-input" yes="$B${TEXT}↵$UB$DIM yes  $B${TEXT}esc$UB$DIM no$R"
+  # m, n and d label the field with what it does and to whom, d's in amber.
+  # Each label is set in the background: fzf drops a label change in the same
+  # chain as show-input.
+  local ask="unbind($lock)+disable-search+change-query()+show-input+change-prompt(› )" yes="$B${TEXT}↵$UB$DIM remove  $B${TEXT}esc$UB$DIM cancel$R"
   local close="+clear-query+enable-search+hide-input+change-prompt(⌕ )+change-input-label( filter )+rebind($lock)+track-current+reload-sync($self --list0)"
   export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
     AGENTS_M="$open+change-footer(${DIM}↵ send  esc cancel${R})+bg-transform-input-label($self --key message {3})+change-query()" \
     AGENTS_N="$open+change-footer(${DIM}↵ rename  esc cancel${R})+bg-transform-input-label($self --key rename {3})+transform-query(printf %s {3})" \
-    AGENTS_D="$ask+transform-prompt($self --key kill {3})+bg-transform-input-label(echo ' $AMBER''remove agent$R ')+change-footer($yes)" \
-    AGENTS_W="$ask+transform-prompt($self --key wt)+bg-transform-input-label(echo ' $AMBER''remove worktree$R ')+transform-footer($self --key remove)"
+    AGENTS_D="$ask+change-footer($yes)+bg-transform-input-label($self --key kill {3})" \
+    AGENTS_W="$ask+transform-footer($self --key remove)+bg-transform-input-label($self --key wt)"
 
   # The first list loads through reload so it, too, sees $FZF_COLUMNS.
   # shellcheck disable=SC2154   # palette sets the colours
