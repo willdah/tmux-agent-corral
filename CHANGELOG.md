@@ -7,6 +7,23 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.26.0](https://github.com/willdah/tmux-agent-corral/compare/0.25.0...0.26.0) - 2026-11-03
+
+### Added
+
+- a note per agent, shown under its row
+
+### Changed
+
+- **Breaking:** diff view and stat, a note per agent, stuck ● clears itself
+- **Breaking:** d shows the agent's diff, x removes, s stops; +added-removed on each row
+- **Breaking:** panel keys moved. d now shows the diff, x removes an agent
+
+### Fixed
+
+- no diff for a gone pane, and no git for --rows' unused stat
+- a working Claude whose screen stands still for 30s turns idle
+
 ## [0.25.0](https://github.com/willdah/tmux-agent-corral/compare/0.24.0...0.25.0) - 2026-11-03
 
 ### Added
