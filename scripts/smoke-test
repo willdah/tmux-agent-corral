@@ -251,6 +251,16 @@ ks() { AGENTS_STATE="$tmp/st" AGENTS_LOCK=y,x FZF_INPUT_STATE="$1" FZF_PROMPT="$
 [ -z "$(ks hidden '⌕ ' shut)" ] || fail "the filter closed twice"
 sleep 0.5; [ "$(ks enabled '⌕ ' slash)" = 'put(/)' ] || fail "a slow / did not type"
 [ "$(ks enabled '› ' slash)" = 'put(/)' ] || fail "/ in a field did not type"
+# The one-line summary's bar sits centred: fzf insets the header 3 columns on
+# the left, 2 on the right, so its gaps match when lead + 1 = cols - 1 - lead - bar.
+for sum in '1 0 1 0 0 0' "1 1 2 1 0 $(date +%s)"; do
+  for hc in 90 91; do
+    echo "$sum" >"$tmp/st/sum"
+    bl="$(NO_COLOR=1 FZF_COLUMNS=$hc AGENTS_STATE="$tmp/st" "$here/src/agents" --header | head -1 | sed $'s/\033\\[[0-9;]*m//g')"
+    lead="${bl%%━*}"; bw="${bl#"$lead"}"; lead=${#lead}; bw=${#bw}
+    [ $(( hc - 8 - lead - bw )) = "$lead" ] || fail "bar off centre at $hc ($sum): lead $lead, bar $bw"
+  done
+done
 # Other harnesses: their badge shows, the title they give themselves doesn't.
 TMUX_PANE=$c "$here/src/agent-state" running copilot </dev/null
 t select-pane -t "$c" -T 'GitHub Copilot'
