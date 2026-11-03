@@ -396,7 +396,7 @@ bar() {
 # as one block so its columns line up. A state with no agents sits dim, and
 # needs you breathes only while someone waits.
 header() {
-  local gen nin nrun ndone nidle old line vis ago='' ic rc dc all='' k cells seg tot cols e=$'\033' w=0 sp
+  local gen nin nrun ndone nidle old line vis ago='' ic rc dc all='' k cells seg tot cols e=$'\033' w=0 sp i
   read -r gen nin nrun ndone nidle old 2>/dev/null <"$AGENTS_STATE/sum" || { printf ' '; return; }
   now="$(date +%s)"; panel_cols; pulse
   tot=$(( nin + nrun + ndone + nidle ))
@@ -412,12 +412,18 @@ header() {
   # fzf sets the header 3 columns in from the box's left edge, which is 2 short of
   # the right one, so a line w wide sits centred after (cols - 1 - w) / 2 spaces.
   if [ "${#vis}" -lt "$cols" ]; then
+    # The bar fills cols - 1, short by an even count so it centres exactly: the
+    # last segment takes the odd cell rounding leaves.
+    local ks=() ss=() n
     for k in input running done idle; do
       case $k in (input) cells=$nin ;; (running) cells=$nrun ;; (done) cells=$ndone ;; (*) cells=$nidle ;; esac
       [ "$cells" -gt 0 ] || continue
-      seg=$(( cells * cols / tot )); [ "$seg" -ge 1 ] || seg=1
-      bar "$k" "$seg"; all+=$bar; w=$(( w + seg ))
+      seg=$(( cells * (cols - 1) / tot )); [ "$seg" -ge 1 ] || seg=1
+      ks+=("$k"); ss+=("$seg"); w=$(( w + seg ))
     done
+    n=${#ss[@]}
+    [ "$n" -eq 0 ] || [ $(( (cols - 1 - w) % 2 )) -eq 0 ] || { ss[n-1]=$(( ss[n-1] + 1 )); w=$(( w + 1 )); }
+    for (( i = 0; i < n; i++ )); do bar "${ks[i]}" "${ss[i]}"; all+=$bar; done
     printf -v sp '%*s' $(( (cols - 1 - w) / 2 > 0 ? (cols - 1 - w) / 2 : 0 )) ''
     [ "$tot" -gt 0 ] && printf '%s%s\n' "$sp" "$all"
     printf -v sp '%*s' $(( (cols - 1 - ${#vis}) / 2 )) ''
@@ -425,7 +431,7 @@ header() {
     return 0
   fi
 
-  local bw=$(( cols - 22 )) lbl gl c tail out=() i
+  local bw=$(( cols - 22 )) lbl gl c tail out=()
   [ "$bw" -ge 4 ] || bw=4
   for k in input running done idle; do
     case $k in
