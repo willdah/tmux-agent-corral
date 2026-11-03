@@ -56,7 +56,7 @@ Check the setup with `~/.config/tmux/agents/src/doctor`. Remove everything with 
 
 | Key | Action |
 |-----|--------|
-| `prefix + a` | agents panel as a popup; `↵` jumps to the agent and closes |
+| `prefix + a` | agents panel as a full-screen popup ([size](docs/configuration.md#panel)); `↵` jumps to the agent and closes |
 | `prefix + A` | toggle the docked panel: a full-height pane on the left that follows you to every window and session and keeps focus; `↵` shows the agent, the cursor stays in the panel |
 
 `@agents_key` and `@agents_key_dock` change these two; see the [FAQ](docs/faq.md).
