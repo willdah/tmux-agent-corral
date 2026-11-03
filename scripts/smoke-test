@@ -757,6 +757,13 @@ grep -q 'agents-dock' <<<"$kb" && fail "empty @agents_key_dock still bound: $kb"
 grep -qE -- '-T prefix a +display-popup' <<<"$kb" && fail "a still bound with @agents_key set: $kb"
 kb="$(keys \; set -g @agents_key 0)"   # a format's false, but a key
 grep -qE -- '-T prefix 0 +display-popup .*/src/agents$' <<<"$kb" || fail "@agents_key 0 not bound: $kb"
+# The popup fills the client unless @agents_popup_width/height say otherwise.
+kb="$(keys)"
+grep -qE -- '-T prefix a +display-popup .*-h "?100%"? -w "?100%"? ' <<<"$kb" || fail "popup is not full screen: $kb"
+kb="$(keys \; set -g @agents_popup_width 120)"
+grep -qE -- '-T prefix a +display-popup .*-h "?100%"? -w "?120"? ' <<<"$kb" || fail "@agents_popup_width not used: $kb"
+kb="$(keys \; set -g @agents_popup_height 85%)"
+grep -qE -- '-T prefix a +display-popup .*-h "?85%"? -w "?100%"? ' <<<"$kb" || fail "@agents_popup_height not used: $kb"
 
 # install.sh, in a throwaway home with no tmux server to reload: the tmux.conf
 # block goes in once, and --remove takes out only that.
