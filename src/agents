@@ -390,12 +390,13 @@ bar() {
   printf -v bar '%*s' "$2" ''; bar="$c${bar// /━}$R"
 }
 
-# header: the summary over the list, from the panel's counts. With room, one
-# bar with a segment per state over a line of counts; when that line won't
-# fit, a stack: a line per state, each with its own bar. A state with no
-# agents sits dim, and needs you breathes only while someone waits.
+# header: the summary over the list, from the panel's counts, centred. With
+# room, one bar with a segment per state over a line of counts; when that
+# line won't fit, a stack: a line per state, each with its own bar, centred
+# as one block so its columns line up. A state with no agents sits dim, and
+# needs you breathes only while someone waits.
 header() {
-  local gen nin nrun ndone nidle old line vis ago='' ic rc dc all='' k cells seg tot cols e=$'\033'
+  local gen nin nrun ndone nidle old line vis ago='' ic rc dc all='' k cells seg tot cols e=$'\033' w=0 sp
   read -r gen nin nrun ndone nidle old 2>/dev/null <"$AGENTS_STATE/sum" || { printf ' '; return; }
   now="$(date +%s)"; panel_cols; pulse
   tot=$(( nin + nrun + ndone + nidle ))
@@ -403,24 +404,28 @@ header() {
   [ "$nin" -gt 0 ] && { ic=$PULSE; age ago "$old"; }
   [ "$nrun" -gt 0 ] && rc=$BLUE
   [ "$ndone" -gt 0 ] && dc=$GREEN
-  printf -v line ' %s▲ %s%s%s need you   %s● %s%s%s working   %s✓ %s%s%s done   %szᶻ %s idle%s' \
+  printf -v line '%s▲ %s%s%s need you   %s● %s%s%s working   %s✓ %s%s%s done   %szᶻ %s idle%s' \
     "$ic" "$B" "$nin" "$UB" "$rc" "$B" "$nrun" "$UB" "$dc" "$B" "$ndone" "$UB" "$DIM" "$nidle" "$R"
   [ -z "$ago" ] || line+="   ${DIM}oldest wait ${AMBER}${ago}${R}"
   vis="${line//$e\[+([0-9;])m/}"
 
-  if [ "${#vis}" -le "$cols" ]; then
+  # fzf sets the header 3 columns in from the box's left edge, which is 2 short of
+  # the right one, so a line w wide sits centred after (cols - 1 - w) / 2 spaces.
+  if [ "${#vis}" -lt "$cols" ]; then
     for k in input running done idle; do
       case $k in (input) cells=$nin ;; (running) cells=$nrun ;; (done) cells=$ndone ;; (*) cells=$nidle ;; esac
       [ "$cells" -gt 0 ] || continue
       seg=$(( cells * cols / tot )); [ "$seg" -ge 1 ] || seg=1
-      bar "$k" "$seg"; all+=$bar
+      bar "$k" "$seg"; all+=$bar; w=$(( w + seg ))
     done
-    [ "$tot" -gt 0 ] && printf ' %s\n' "$all"
-    printf '%s' "$line"
+    printf -v sp '%*s' $(( (cols - 1 - w) / 2 > 0 ? (cols - 1 - w) / 2 : 0 )) ''
+    [ "$tot" -gt 0 ] && printf '%s%s\n' "$sp" "$all"
+    printf -v sp '%*s' $(( (cols - 1 - ${#vis}) / 2 )) ''
+    printf '%s%s' "$sp" "$line"
     return 0
   fi
 
-  local bw=$(( cols - 22 )) lbl gl c tail
+  local bw=$(( cols - 22 )) lbl gl c tail out=() i
   [ "$bw" -ge 4 ] || bw=4
   for k in input running done idle; do
     case $k in
@@ -434,9 +439,11 @@ header() {
       seg=$(( cells * bw / tot )); [ "$seg" -ge 1 ] || seg=1
       bar "$k" "$seg"
     else bar="${FAINT}·${R}"; fi
-    printf ' %s%s %-9s%s%s%2s%s  %s%s' "$c" "$gl" "$lbl" "$R" "$B$c" "$cells" "$R" "$bar" "$tail"
-    [ "$k" = idle ] || printf '\n'
+    printf -v line '%s%s %-9s%s%s%2s%s  %s%s' "$c" "$gl" "$lbl" "$R" "$B$c" "$cells" "$R" "$bar" "$tail"
+    out+=("$line"); vis="${line//$e\[+([0-9;])m/}"; [ "${#vis}" -le "$w" ] || w=${#vis}
   done
+  printf -v sp '%*s' $(( (cols - 1 - w) / 2 > 0 ? (cols - 1 - w) / 2 : 0 )) ''
+  for i in 0 1 2 3; do printf '%s%s' "$sp" "${out[i]}"; [ "$i" = 3 ] || printf '\n'; done
 }
 
 # A row id is a pane id; the empty-state row uses "-". (fzf 0.74 hangs
@@ -564,20 +571,22 @@ slash() {
 # by panel):
 #   key m|n PANE            open the field, on an agent's row only; n also
 #                           on a group heading, to rename its session
-#   key message|rename SHOWN  the prompt, naming the agent, cut for the dock
+#   key message|rename SHOWN  the field's label, naming the agent, cut for the dock
 #   key d PANE              ask, in the input field, before removing an agent's pane
-#   key kill SHOWN          that question as the field's label, naming the agent, cut for the dock
-#   key wt                  the label for the worktree question that may follow
+#   key kill SHOWN          that question as the field's prompt, naming the agent, cut for the dock
+#   key wt                  the prompt for the worktree question that may follow
 #   key enter PANE SHOWN    send, rename or remove, then say in the footer how it went,
 #                           put back by key restore 3s later; elsewhere, jump
 #   key esc                 leave the field, or close the panel
 #   key first               on opening grouped, start on the first agent, not its heading
 #   key slash, key shut     / and its second half: see slash
-# Closing the field is chained after key in the bind: fzf drops a clear-query
-# that comes out of a transform, and the query would go on filtering the list.
+# The field's label says which is open (' filter ' when none); every field's
+# prompt but the filter's is free text. Closing the field is chained after key
+# in the bind: fzf drops a clear-query that comes out of a transform, and the
+# query would go on filtering the list.
 key() {
   local did=''
-  case "$1:$FZF_PROMPT" in
+  case "$1:${FZF_INPUT_LABEL:-}" in
     slash:*)              slash; return ;;
     shut:*)               if [ -f "$AGENTS_STATE/shut" ]; then rm -f "$AGENTS_STATE/shut"; printf 'hide-input+rebind(%s)+search()' "$AGENTS_LOCK"; fi
                           return 0 ;;
@@ -587,16 +596,26 @@ key() {
     d:*)                  is_pane "${2:-}" || return 0
                           printf '%s' "$AGENTS_D"; return ;;
     kill:*)               local n="${2:-}"; [ "${#n}" -le 24 ] || n="${n:0:23}…"
-                          printf ' %sremove %s?%s ' "$AMBER" "$n" "$R"
+                          printf '%sremove %s?%s ' "$AMBER" "$n" "$R"
                           return ;;
-    wt:*)                 printf ' %sremove worktree?%s ' "$AMBER" "$R"; return ;;
+    wt:*)                 local wt; read -r wt 2>/dev/null <"$AGENTS_STATE/ask" || return 0
+                          printf '%sremove %s?%s ' "$AMBER" "${wt##*/}" "$R"; return ;;
     message:*|rename:*)   local n="${2:-}"; [ "${#n}" -le 24 ] || n="${n:0:23}…"
-                          printf '%s %s › ' "${1/message/message to}" "$n"
+                          printf ' %s · %s ' "$1" "$n"
                           return ;;
-    'enter:message to '*) if [ -z "$FZF_QUERY" ]; then :
+    'enter: message · '*) if [ -z "$FZF_QUERY" ]; then :
                           elif message "$2" "$FZF_QUERY" 2>/dev/null; then did="${GREEN}✓${R} sent to $TEXT$3"
                           else did="${AMBER}✗${R} not sent: $TEXT$3$R is gone"; fi ;;
-    'enter:remove agent'*) local dir wt; dir="$(tmux display -p -t "${2:-}" '#{pane_current_path}' 2>/dev/null)"
+    'enter: rename · '*) local out
+                          if [ "$FZF_QUERY" = "$3" ]; then :
+                          elif ! is_pane "$2"; then
+                            if [ -z "$FZF_QUERY" ]; then :
+                            elif out="$(rename_session "$3" "$FZF_QUERY" 2>&1)"; then did="${GREEN}✓${R} renamed to $TEXT$out"
+                            else did="${AMBER}✗${R} not renamed: $TEXT$out"; fi
+                          elif ! rename "$2" "$FZF_QUERY" 2>/dev/null; then did="${AMBER}✗${R} not renamed: $TEXT$3$R is gone"
+                          elif [ -n "$FZF_QUERY" ]; then did="${GREEN}✓${R} renamed to $TEXT$FZF_QUERY"
+                          else did="${GREEN}✓${R} name reset"; fi ;;
+    enter:*'remove agent'*)  local dir wt; dir="$(tmux display -p -t "${2:-}" '#{pane_current_path}' 2>/dev/null)"
                           # Anything typed (an "n", say) is a no: only esc or a bare ↵ answers.
                           if [ -n "$FZF_QUERY" ]; then :
                           elif kill_pane "$2" 2>/dev/null; then did="${GREEN}✓${R} removed $TEXT$3"
@@ -607,29 +626,20 @@ key() {
                           else did="${AMBER}✗${R} not removed: $TEXT$3$R is gone"; fi ;;
     remove:*)             local wt n; { read -r wt; read -r n; } 2>/dev/null <"$AGENTS_STATE/ask" || return 0
                           [ "${#n}" -le 24 ] || n="${n:0:23}…"
-                          printf '%s✓%s removed %s%s  %sremove its worktree %s?%s  %s↵%s yes  %sesc%s no%s' \
-                            "$GREEN" "$R" "$TEXT" "$n" "$R$TEXT" "${wt##*/}" "$R" "$B$TEXT" "$UB$DIM" "$B$TEXT" "$UB$DIM" "$R"
+                          printf '%s✓%s removed %s%s  %s↵%s yes  %sesc%s no%s' \
+                            "$GREEN" "$R" "$TEXT" "$n" "$R$B$TEXT" "$UB$DIM" "$B$TEXT" "$UB$DIM" "$R"
                           return ;;
-    'enter:remove worktree'*) local wt out; read -r wt 2>/dev/null <"$AGENTS_STATE/ask" || wt=''
+    enter:*'remove worktree'*)  local wt out; read -r wt 2>/dev/null <"$AGENTS_STATE/ask" || wt=''
                           rm -f "$AGENTS_STATE/ask"
                           # Asked a moment ago: check again, git refuses a dirty one too.
                           if [ -z "$wt" ] || [ -n "$FZF_QUERY" ]; then :
                           elif ! out="$(worktree "$wt")"; then did="${AMBER}✗${R} worktree kept: $TEXT${out:-it is gone}"
                           elif out="$(git -C "$wt" worktree remove "$wt" 2>&1)"; then did="${GREEN}✓${R} removed $TEXT${wt##*/}"
                           else did="${AMBER}✗${R} not removed: $TEXT${out##*$'\n'}"; fi ;;
-    'enter:rename '*)     local out
-                          if [ "$FZF_QUERY" = "$3" ]; then :
-                          elif ! is_pane "$2"; then
-                            if [ -z "$FZF_QUERY" ]; then :
-                            elif out="$(rename_session "$3" "$FZF_QUERY" 2>&1)"; then did="${GREEN}✓${R} renamed to $TEXT$out"
-                            else did="${AMBER}✗${R} not renamed: $TEXT$out"; fi
-                          elif ! rename "$2" "$FZF_QUERY" 2>/dev/null; then did="${AMBER}✗${R} not renamed: $TEXT$3$R is gone"
-                          elif [ -n "$FZF_QUERY" ]; then did="${GREEN}✓${R} renamed to $TEXT$FZF_QUERY"
-                          else did="${GREEN}✓${R} name reset"; fi ;;
     enter:*)              printf '%s' "$AGENTS_ENTER"; return ;;
-    esc:'⌕ ')             [ "${FZF_INPUT_STATE:-hidden}" != hidden ] || { printf abort; return; } ;;
+    esc:' filter ')             [ "${FZF_INPUT_STATE:-hidden}" != hidden ] || { printf abort; return; } ;;
     first:*)              [ "$(tmux show -gv @agents_group 2>/dev/null)" = on ] && printf 'pos(2)'; return 0 ;;
-    restore:'⌕ ')         ;;
+    restore:' filter ')   ;;
     restore:*)            return ;;
   esac
   if [ -n "$did" ]; then
@@ -774,17 +784,17 @@ panel() {
   # put too, so the row being written to can't change underneath.
   export AGENTS_LOCK="${lock%,}"
   lock+='up,down'
-  local open="unbind($lock)+disable-search+show-input+change-footer(${DIM}↵ send  esc cancel${R})"
-  # m and n label the field with what it does, and d asks in it, its amber label the
-  # question. Each label is set in the background: fzf drops a label change in the
-  # same chain as show-input.
+  local open="unbind($lock)+disable-search+show-input+change-prompt(› )"
+  # m and n label the field with what it does and to whom; d asks in it, the
+  # prompt the question, the amber label what it removes. Each label is set in
+  # the background: fzf drops a label change in the same chain as show-input.
   local ask="unbind($lock)+disable-search+change-query()+show-input" yes="$B${TEXT}↵$UB$DIM yes  $B${TEXT}esc$UB$DIM no$R"
   local close="+clear-query+enable-search+hide-input+change-prompt(⌕ )+change-input-label( filter )+rebind($lock)+track-current+reload-sync($self --list0)"
   export AGENTS_ENTER="$enter" AGENTS_FOOTER="${footer%  }" \
-    AGENTS_M="$open+bg-transform-input-label(echo ' message ')+change-query()+transform-prompt($self --key message {3})" \
-    AGENTS_N="$open+bg-transform-input-label(echo ' rename ')+transform-query(printf %s {3})+transform-prompt($self --key rename {3})" \
-    AGENTS_D="$ask+change-prompt(remove agent › )+bg-transform-input-label($self --key kill {3})+change-footer($yes)" \
-    AGENTS_W="$ask+change-prompt(remove worktree › )+bg-transform-input-label($self --key wt)+transform-footer($self --key remove)"
+    AGENTS_M="$open+change-footer(${DIM}↵ send  esc cancel${R})+bg-transform-input-label($self --key message {3})+change-query()" \
+    AGENTS_N="$open+change-footer(${DIM}↵ rename  esc cancel${R})+bg-transform-input-label($self --key rename {3})+transform-query(printf %s {3})" \
+    AGENTS_D="$ask+transform-prompt($self --key kill {3})+bg-transform-input-label(echo ' $AMBER''remove agent$R ')+change-footer($yes)" \
+    AGENTS_W="$ask+transform-prompt($self --key wt)+bg-transform-input-label(echo ' $AMBER''remove worktree$R ')+transform-footer($self --key remove)"
 
   # The first list loads through reload so it, too, sees $FZF_COLUMNS.
   # shellcheck disable=SC2154   # palette sets the colours
