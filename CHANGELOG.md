@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.24.0](https://github.com/willdah/tmux-agent-corral/compare/0.23.0...0.24.0) - 2026-11-03
+
+### Added
+
+- centre the summary, and clean up the input fields
+- the remove fields look like the message field
+
+### Fixed
+
+- centre the summary bar when one state fills it
+- read the field label only while a field is open
+
 ## [0.23.0](https://github.com/willdah/tmux-agent-corral/compare/0.22.1...0.23.0) - 2026-11-02
 
 ### Added
