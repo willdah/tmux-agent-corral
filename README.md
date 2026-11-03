@@ -21,7 +21,7 @@ Claude Code, Copilot CLI and Pi sessions, in any tmux session, window or pane, r
 
 - **Status line:** one mark per agent across all sessions, waiting first. `▲` (amber) needs you, `●` (blue) working, `✓` (green) finished and not yet looked at.
 - **Window tabs:** each tab carries the marks of its own panes, so the window to go to is the one with the `▲`.
-- **The panel:** every agent in one list, waiting ones first with the longest wait on top, and a live view of the selected pane. Open it as a popup, or dock it as a pane that follows you to every window.
+- **The panel:** every agent in one list, waiting ones first with the longest wait on top, and a live view of the selected pane. Each row shows the agent's note, if it has one: why it waits, or a line you or a script set (`agent-state note`). Open it as a popup, or dock it as a pane that follows you to every window.
 - **Any harness:** the protocol is one script, so agents beyond the built-in three can join with a single hook line.
 
 ## Requirements

@@ -91,11 +91,31 @@ t set -p -t "$a" @agent_screen "$(scr "$a") $(( $(date +%s) - 31 ))"
 [ "$(t display -p -t "$a" '#{@agent_state}')" = running ] || fail "sweep idled a still copilot"
 TMUX_PANE=$a "$here/src/agent-state" idle </dev/null; TMUX_PANE=$a "$here/src/agent-state" running </dev/null
 [ -z "$(t display -p -t "$a" '#{@agent_screen}')" ] || fail "a state change kept @agent_screen"
-# --rows: eight tab-separated fields per agent, rank and since leading.
+# --rows: nine tab-separated fields per agent, rank and since leading.
 r="$("$here/src/agents" --rows | grep "	$b	")"
-[ "$(printf '%s' "$r" | awk -F'\t' '{print NF, $1, $2, $3, $4, $5, $6, $7, $8}')" = "8 0 $since $b input claude smokeproj work work" ] || fail "rows record: $r"
+[ "$(printf '%s' "$r" | awk -F'\t' '{print NF, $1, $2, $3, $4, $5, $6, $7, $8, "<" $9 ">"}')" = "9 0 $since $b input claude smokeproj work work <>" ] || fail "rows record: $r"
 order="$("$here/src/agents" --rows | cut -f3 | tr '\n' ' ')"
 case "$order" in "$b $d $c $a "|"$d $b $c $a ") ;; *) fail "order: $order" ;; esac
+# A note: one line, from agent-state note, under the row and in --rows. A
+# hook's message fills it as input comes in, unless there is one, and goes as
+# input does; yours stays.
+"$here/src/agent-state" note "$shell" hi 2>/dev/null && fail "note on no agent"
+"$here/src/agent-state" note "$c" $'fix\tthe\nlogin' || fail "note"
+[ "$("$here/src/agents" --rows | awk -F'\t' -v p="$c" '$3 == p { print $9 }')" = 'fix the login' ] || fail "note field: $("$here/src/agents" --rows | grep "$c")"
+NO_COLOR=1 "$here/src/agents" --list0 | tr '\0' '\n' | grep -A1 "^$c" | sed -n 2p | grep -q '^      fix the login' || fail "note line: $(NO_COLOR=1 "$here/src/agents" --list0 | tr '\0' '\n')"
+ask='{"message":"Claude needs your permission to use Bash"}'
+TMUX_PANE=$c "$here/src/agent-state" input <<<"$ask"
+[ "$(t display -p -t "$c" '#{@agent_note}|#{@agent_note_auto}')" = 'fix the login|' ] || fail "a hook replaced your note"
+TMUX_PANE=$c "$here/src/agent-state" done </dev/null
+[ "$(t display -p -t "$c" '#{@agent_note}')" = 'fix the login' ] || fail "leaving input cleared your note"
+"$here/src/agent-state" note "$c" '' && [ -z "$(t display -p -t "$c" '#{@agent_note}')" ] || fail "note not cleared"
+TMUX_PANE=$c "$here/src/agent-state" input <<<"$ask"
+[ "$(t display -p -t "$c" '#{@agent_note}|#{@agent_note_auto}')" = 'Claude needs your permission to use Bash|1' ] || fail "hook note: $(t display -p -t "$c" '#{@agent_note}|#{@agent_note_auto}')"
+TMUX_PANE=$c "$here/src/agent-state" running </dev/null
+[ -z "$(t display -p -t "$c" '#{@agent_note}#{@agent_note_auto}')" ] || fail "hook note outlived the wait"
+TMUX_PANE=$c "$here/src/agent-state" input <<<"$ask"; TMUX_PANE=$c "$here/src/agent-state" clear </dev/null
+[ -z "$(t display -p -t "$c" '#{@agent_note}#{@agent_note_auto}')" ] || fail "clear kept the note"
+TMUX_PANE=$c "$here/src/agent-state" done </dev/null
 # Grouped: a heading per session, the session with the most urgent row first
 # (b and d wait from the same second, so either), each in the usual order; an untitled row names its directory, not the
 # session its heading shows.

@@ -2,6 +2,7 @@
 # agent-state <input|running|done|idle|clear> [harness]
 # agent-state wait PANE [STATE...] [--timeout SECONDS]
 # agent-state prompt PANE TEXT
+# agent-state note PANE [TEXT]
 # agent-state seen PANE
 # agent-state sweep
 #
@@ -17,6 +18,11 @@
 #   @agent_name   a name given in the agents panel (n); cleared here too
 #   @agent_dir, @agent_project
 #                 the panel's cached project lookup; cleared here too
+#   @agent_note   a line the panel shows under the row (note, or the wait
+#                 reason a hook's JSON message gives as `input` comes in)
+#   @agent_note_auto
+#                 set when that note came from a hook: it goes as the pane
+#                 leaves input. A note from `note` stays until changed
 #   @agent_screen sweep's record of a working Claude's screen: a hash and
 #                 when it was first seen
 #
@@ -36,6 +42,8 @@
 #           running so a wait right after it does not read the last turn's
 #           done; 1 when PANE is no agent, or is waiting on you (TEXT would
 #           answer its question)
+#   note    sets the agent in PANE's note to TEXT (one line), or clears it
+#           with none; 1 when PANE is no agent
 #
 # Two more keep the record in one place; they exit 0 like the state verbs:
 #
@@ -86,6 +94,14 @@ case "${1:-}" in
       done
     exit 0
     ;;
+  note)
+    state_of "${2:-}" 2>/dev/null && [ -n "$s" ] || { echo "agents: ${2:-} is not an agent" >&2; exit 1; }
+    text="${3:-}"; text="${text//[$'\t\n\r\037']/ }"   # one line: the panel's records split on these
+    if [ -n "$text" ]; then tmux set -p -t "$pid" @agent_note "$text" \; set -pu -t "$pid" @agent_note_auto
+    else tmux set -pu -t "$pid" @agent_note \; set -pu -t "$pid" @agent_note_auto; fi
+    tmux wait-for -S agents 2>/dev/null
+    exit 0
+    ;;
   wait)
     shift; p="${1:-}"; shift || true
     [ -n "$p" ] || exit 1
@@ -124,24 +140,33 @@ case "${1:-}" in
 esac
 
 [ -n "${TMUX_PANE:-}" ] || exit 0
-[ -t 0 ] || cat >/dev/null 2>&1   # drain hook JSON on stdin so the writer never blocks
-
 state="${1:-}"
 p="$TMUX_PANE"
+json=''
+if [ ! -t 0 ]; then   # drain hook JSON on stdin so the writer never blocks; input keeps its message
+  if [ "$state" = input ]; then json="$(cat 2>/dev/null)" || true; else cat >/dev/null 2>&1; fi
+fi
 
 case "$state" in
   clear)
     tmux set -pu -t "$p" @agent \; set -pu -t "$p" @agent_state \; set -pu -t "$p" @agent_since \; \
          set -pu -t "$p" @agent_name \; set -pu -t "$p" @agent_dir \; set -pu -t "$p" @agent_project \; \
-         set -pu -t "$p" @agent_screen 2>/dev/null
+         set -pu -t "$p" @agent_note \; set -pu -t "$p" @agent_note_auto \; set -pu -t "$p" @agent_screen 2>/dev/null
     ;;
   input|running|done|idle)
     # PostToolUse fires on every tool call; only a real change touches tmux,
     # so @agent_since keeps meaning "in this state since".
-    [ "$(tmux display -p -t "$p" '#{@agent_state}' 2>/dev/null)" = "$state" ] && exit 0
+    IFS='|' read -r was auto note <<<"$(tmux display -p -t "$p" '#{@agent_state}|#{@agent_note_auto}|#{@agent_note}' 2>/dev/null)"
+    [ "$was" = "$state" ] && exit 0
+    more=(\; set -pu -t "$p" @agent_screen)
+    # A hook's note is its wait reason: it goes when the wait does, and never replaces yours.
+    if [ "$state" != input ]; then [ -z "$auto" ] || more+=(\; set -pu -t "$p" @agent_note \; set -pu -t "$p" @agent_note_auto)
+    elif [ -z "$note" ] && [ -n "$json" ] && msg="$(jq -r '.message // empty' <<<"$json" 2>/dev/null)" && [ -n "$msg" ]; then
+      more+=(\; set -p -t "$p" @agent_note "${msg//[$'\t\n\r\037']/ }" \; set -p -t "$p" @agent_note_auto 1)
+    fi
     tmux set -p -t "$p" @agent "${2:-claude}" \; \
          set -p -t "$p" @agent_state "$state" \; \
-         set -p -t "$p" @agent_since "$(date +%s)" \; set -pu -t "$p" @agent_screen 2>/dev/null
+         set -p -t "$p" @agent_since "$(date +%s)" "${more[@]}" 2>/dev/null
     ;;
   *) exit 0 ;;
 esac

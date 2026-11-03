@@ -16,9 +16,11 @@
 #   agents --rows     the data behind the rows, for scripts: one tab-separated
 #                     record per agent in panel order, no headings or colours:
 #                     rank (0 needs you, 1 finished, 2 idle, 3 working), since
-#                     (epoch), pane id, state, harness, project, name, session.
-#                     Grouped, a heading record leads each session: rank H,
-#                     its counts by rank in the state field, -<session> as id.
+#                     (epoch), pane id, state, harness, project, name, session,
+#                     note. Grouped, a heading record leads each session: rank
+#                     H, its counts by rank in the state field, -<session> as id.
+#
+# A row shows the agent's note (agent-state note) on a dim line under it.
 #
 # Keys: ↵ jump · y approve · m message · x interrupt · n rename · d remove · c new · / filter · g group · p preview · q hide · r refresh
 # (@agents_panel_key_<action> moves one; agents --keys lists them as set:
@@ -222,14 +224,14 @@ US=$'\037'   # unit separator: unlike a tab, read keeps empty fields
 # below. It clears nothing: agents that died without a word stay listed until
 # `agent-state sweep`, which the panel runs on open and every 10s.
 rows() {
-  local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{@agent_dir}${US}#{@agent_project}${US}#{@agent_name}${US}#{pane_title}"
+  local fmt="#{pane_id}${US}#{@agent_state}${US}#{@agent_since}${US}#{@agent}${US}#{session_name}${US}#{pane_current_path}${US}#{@agent_dir}${US}#{@agent_project}${US}#{@agent_name}${US}#{@agent_note}${US}#{pane_title}"
   local host="${HOSTNAME:-$(hostname)}" group fb keys=('-k1,1n' '-k2,2n')
   group="$(tmux show -gv @agents_group 2>/dev/null || true)"
   [ "$group" = on ] && keys+=('-k8,8')
   # Grouped, awk gathers each session's rows in the order its first (most
   # urgent) row came, behind a heading record: H, then the counts by rank.
   # tmux before 3.5 prints the separator as a literal \037; turn it back.
-  tmux list-panes -a -f '#{@agent_state}' -F "$fmt" | sed "s/\\\\037/$US/g" | while IFS="$US" read -r id st since agent sess dir pdir proj name title; do
+  tmux list-panes -a -f '#{@agent_state}' -F "$fmt" | sed "s/\\\\037/$US/g" | while IFS="$US" read -r id st since agent sess dir pdir proj name note title; do
     # git runs once per pane and directory; the project then stays on the
     # pane until agent-state clears it with the rest. Only a git answer is
     # kept, so a failure (safe.directory, a repo made later) does not stick.
@@ -252,7 +254,7 @@ rows() {
     case "$title" in ("$host"|'Claude Code'|'GitHub Copilot') title= ;; esac
     # Under the session heading, an untitled row names its directory instead.
     fb="$sess"; [ "$group" = on ] && fb="${dir##*/}"
-    printf "%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s\n" "$rank" "${since:-0}" "$id" "$st" "$agent" "$proj" "${name:-${title:-$fb}}" "$sess"
+    printf "%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s${US}%s\n" "$rank" "${since:-0}" "$id" "$st" "$agent" "$proj" "${name:-${title:-$fb}}" "$sess" "$note"
   done | sort -t"$US" "${keys[@]}" | if [ "$group" = on ]; then
     awk -F"$US" -v OFS="$US" '
       !($8 in r) { o[k++] = $8 }
@@ -341,8 +343,8 @@ list() {
   hw=$(( hw - 1 ))
   [ "$hw" -ge 5 ] || hw=5
   printf -v bars '%*s' "$hw" ''; bars="${bars// /─}"
-  while IFS="$US" read -r rank since id st agent proj title sess; do
-    local glyph col who ago where=''
+  while IFS="$US" read -r rank since id st agent proj title sess note; do
+    local glyph col who ago where='' nl=''
     if [ "$rank" = H ]; then
       read -r -a ns <<<"$st"
       counts='' cl=0
@@ -363,6 +365,9 @@ list() {
       *)       glyph='zᶻ' col=$DIM   ;;
     esac
     [ "$pw" -gt 0 ] && { fit cell "$pw" "$proj"; where=" $DIM$cell$R"; }
+    # The note, a line of the row's own (the panel turns \037 into one),
+    # under the title, as wide as the panel lets it.
+    [ -z "$note" ] || [ "$cols" -lt 8 ] || { fit nl $(( cols - 6 )) "$note"; nl=$'\037'"      $DIM$nl$R"; }
     badge who "$agent"
     fit cell "$tw" "$title"; age ago "$since"
     if [ "$st" = running ] && [ -n "${AGENTS_STATE:-}" ]; then
@@ -371,13 +376,13 @@ list() {
       shine cell "$cell" $(( (frame + ri * 11) % (tw + 12) - 6 ))
     else cell="$TEXT$cell$R"; fi
     ri=$(( ri + 1 ))
-    printf '%s\t %s%s%s %s %s%s %s%4s%s\t%s\n' \
+    printf '%s\t %s%s%s %s %s%s %s%4s%s%s\t%s\n' \
       "$id" \
       "$col" "$glyph" "$R" \
       "$who" \
       "$cell" \
       "$where" \
-      "$DIM" "$ago" "$R" \
+      "$DIM" "$ago" "$R" "$nl" \
       "$title"
   done <<<"$rows"
 }
