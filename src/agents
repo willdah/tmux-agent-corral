@@ -585,8 +585,10 @@ slash() {
 # in the bind: fzf drops a clear-query that comes out of a transform, and the
 # query would go on filtering the list.
 key() {
-  local did=''
-  case "$1:${FZF_INPUT_LABEL:-}" in
+  local did='' f="${FZF_INPUT_LABEL:-}"
+  # A label lands in the background, maybe after its field closed: the filter's prompt means none is open.
+  [ "${FZF_PROMPT:-}" != '⌕ ' ] || f=' filter '
+  case "$1:$f" in
     slash:*)              slash; return ;;
     shut:*)               if [ -f "$AGENTS_STATE/shut" ]; then rm -f "$AGENTS_STATE/shut"; printf 'hide-input+rebind(%s)+search()' "$AGENTS_LOCK"; fi
                           return 0 ;;
