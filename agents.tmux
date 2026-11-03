@@ -18,8 +18,11 @@
 # them by hand here if anyone wants one. The doctor names a key left unbound.
 set -goq @agents_key      a
 set -goq @agents_key_dock A
+# The popup's size, as display-popup's -w and -h take it. Also read once, here.
+set -goq @agents_popup_width  100%
+set -goq @agents_popup_height 100%
 if -F '#{!=:#{@agents_key},}' {
-  run -C 'bind -N "Agents panel" #{q:@agents_key} display-popup -B -E -w 90% -h 85% "~/.config/tmux/agents/src/agents"'
+  run -C 'bind -N "Agents panel" #{q:@agents_key} display-popup -B -E -w #{q:@agents_popup_width} -h #{q:@agents_popup_height} "~/.config/tmux/agents/src/agents"'
 }
 if -F '#{!=:#{@agents_key_dock},}' {
   run -C 'bind -N "Agents panel, docked (toggle)" #{q:@agents_key_dock} run-shell "~/.config/tmux/agents/src/agents-dock toggle ##{window_id}"'

@@ -25,6 +25,8 @@ A colour is `colourN` (0 to 255), `#rrggbb`, or one of the 16 names (`red`, `bri
 
 `set -g @agents_group on` starts the panel grouped by tmux session (`g` toggles it).
 
+`prefix + a` opens the popup over the whole client. `set -g @agents_popup_width 90%` and `set -g @agents_popup_height 85%` give it another size: anything `display-popup -w`/`-h` takes, cells or a percentage. Like the [keys](faq.md), set these before the `source-file` line: they are read once, when the key is bound.
+
 ## Notifications
 
 `@agents_notify` says how you hear that an agent needs you or finished while no client is looking at its pane:
