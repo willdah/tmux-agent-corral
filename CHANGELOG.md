@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 New entries are written by the release workflow from the conventional commit
 messages and PR titles merged since the previous release.
 
+## [0.25.0](https://github.com/willdah/tmux-agent-corral/compare/0.24.0...0.25.0) - 2026-11-03
+
+### Added
+
+- the popup fills the terminal, with a size option
+- the popup fills the terminal, sized by @agents_popup_width/height
+
 ## [0.24.0](https://github.com/willdah/tmux-agent-corral/compare/0.23.0...0.24.0) - 2026-11-03
 
 ### Added
